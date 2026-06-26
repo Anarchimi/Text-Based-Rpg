@@ -2,7 +2,9 @@ import os
 import uuid
 import random
 import pickle
+from datetime import timedelta
 from flask import Flask, session, request, redirect, url_for, render_template
+from flask_compress import Compress
 
 from player import Player, PROFESSIONS
 from enemies import spawn_enemy
@@ -15,11 +17,21 @@ from crafting import (TRADE_PROFESSIONS, CRAFTING_RECIPES, ZONE_RESOURCES,
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', b'shattered-realm-secret-2024')
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = timedelta(days=365)
+app.config['COMPRESS_MIMETYPES'] = [
+    'text/html', 'text/css', 'application/json', 'application/javascript',
+]
+app.config['COMPRESS_LEVEL'] = 6
+app.config['COMPRESS_MIN_SIZE'] = 500
+Compress(app)
+
 app.jinja_env.globals['enumerate'] = enumerate
 app.jinja_env.globals['len'] = len
 
 SAVE_DIR = '/tmp/rpg_saves'
 os.makedirs(SAVE_DIR, exist_ok=True)
+
+_PICKLE_PROTOCOL = pickle.HIGHEST_PROTOCOL
 
 SEAL_MESSAGES = {
     1: "✦ The FIRST SEAL cracks. A darkness stirs beyond the horizon...",
@@ -72,7 +84,7 @@ def save_state(state):
         session['sid'] = sid
     os.makedirs(SAVE_DIR, exist_ok=True)
     with open(f'{SAVE_DIR}/{sid}.pkl', 'wb') as f:
-        pickle.dump(state, f)
+        pickle.dump(state, f, protocol=_PICKLE_PROTOCOL)
 
 
 def fresh_state():

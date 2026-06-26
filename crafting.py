@@ -1,4 +1,5 @@
 import random
+import math
 from items import generate_weapon, generate_armor, Item
 
 # ── Zone resource tables ──────────────────────────────────────────────────────
@@ -136,16 +137,14 @@ def xp_for_level(level):
 
 
 def calc_skill_level(total_xp):
-    """Convert accumulated XP to skill level (1–20)."""
-    level, accumulated = 1, 0
-    while level < 20:
-        needed = xp_for_level(level)
-        if total_xp >= accumulated + needed:
-            accumulated += needed
-            level += 1
-        else:
-            break
-    return level
+    """Convert accumulated XP to skill level (1–20). O(1) closed-form solution.
+    Cumulative XP to reach level n = sum(k*100 for k in 1..n-1) = 50*n*(n-1).
+    Solving 50n(n-1) <= xp: n = floor((1 + sqrt(1 + 0.08*xp)) / 2).
+    """
+    if total_xp <= 0:
+        return 1
+    n = int((1 + math.sqrt(1 + 0.08 * total_xp)) / 2)
+    return min(n, 20)
 
 
 def gather_resource(player, zone_id, skill_name):
