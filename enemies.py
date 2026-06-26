@@ -25,8 +25,14 @@ ENEMY_TEMPLATES = [
      "abilities": ["Shadow Strike", "Vanish", "Poison Blade"]},
     {"name": "Lich",          "hp": 160, "hp_s": 18, "atk": 35, "atk_s": 5.0, "def": 12, "def_s": 1.5, "xp": 250, "gold": 80, "zone": 4, "tier": 4,
      "abilities": ["Soul Rend", "Undead Army", "Death Coil"]},
-    {"name": "Ancient Dragon","hp": 300, "hp_s": 25, "atk": 45, "atk_s": 6.0, "def": 20, "def_s": 2.0, "xp": 400, "gold": 150,"zone": 5, "tier": 5,
+    {"name": "Ancient Dragon",  "hp": 300, "hp_s": 35, "atk": 45, "atk_s": 8.0, "def": 20, "def_s": 2.5, "xp": 400, "gold": 150,"zone": 5, "tier": 5,
      "abilities": ["Dragon Breath", "Tail Crush", "Roar", "Wing Buffet"]},
+    {"name": "Chaos Elemental", "hp": 220, "hp_s": 28, "atk": 50, "atk_s": 7.5, "def": 14, "def_s": 1.8, "xp": 380, "gold": 130,"zone": 5, "tier": 5,
+     "abilities": ["Chaos Burst", "Void Rift", "Elemental Storm"]},
+    {"name": "Undead Titan",    "hp": 380, "hp_s": 40, "atk": 42, "atk_s": 7.0, "def": 25, "def_s": 3.0, "xp": 420, "gold": 160,"zone": 5, "tier": 5,
+     "abilities": ["Titan Slam", "Bone Crush", "Death Wail"]},
+    {"name": "Void Stalker",    "hp": 260, "hp_s": 30, "atk": 55, "atk_s": 9.0, "def": 12, "def_s": 1.5, "xp": 450, "gold": 175,"zone": 5, "tier": 5,
+     "abilities": ["Phase Strike", "Void Step", "Reality Tear", "Soul Devour"]},
 ]
 
 BOSS_TEMPLATES = [
@@ -50,17 +56,18 @@ class Enemy:
 
         scale = level - 1
         if is_boss:
-            self.max_hp = template["hp"] + scale * 20
-            self.atk    = template["atk"] + scale * 4
-            self.def_   = template["def"] + scale * 2
-            self.xp     = template["xp"] + scale * 50
-            self.gold   = template["gold"] + scale * 20
+            power_scale = 1 + scale * 0.12
+            self.max_hp = int(template["hp"] * power_scale)
+            self.atk    = int(template["atk"] * power_scale)
+            self.def_   = int(template["def"] * power_scale)
+            self.xp     = int(template["xp"] * power_scale)
+            self.gold   = int(template["gold"] * power_scale)
         else:
-            self.max_hp = int(template["hp"] + template["hp_s"] * scale)
-            self.atk    = int(template["atk"] + template["atk_s"] * scale)
-            self.def_   = int(template["def"] + template["def_s"] * scale)
-            self.xp     = int(template["xp"] + scale * 8)
-            self.gold   = int(template["gold"] + scale * 3)
+            self.max_hp = int(template["hp"] + template["hp_s"] * scale * 1.4)
+            self.atk    = int(template["atk"] + template["atk_s"] * scale * 1.3)
+            self.def_   = int(template["def"] + template["def_s"] * scale * 1.3)
+            self.xp     = int(template["xp"] + scale * 15)
+            self.gold   = int(template["gold"] + scale * 5)
 
         self.hp       = self.max_hp
         self.debuffs  = {}
