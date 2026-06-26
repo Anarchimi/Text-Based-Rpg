@@ -21,19 +21,19 @@ WEAPON_NAMES = {
 ARMOR_PREFIXES = ["Leather", "Chain", "Plate", "Shadow", "Runic", "Ancient", "Blessed", "Void", "Ember", "Frost"]
 ARMOR_NAMES    = ["Chestplate", "Helmet", "Gauntlets", "Boots", "Pauldrons", "Greaves"]
 CONSUMABLE_NAMES = [
-    ("Health Potion",    "heal_hp",   30),
-    ("Greater Health Potion", "heal_hp", 70),
-    ("Mana Potion",      "heal_mp",   20),
-    ("Greater Mana Potion",  "heal_mp", 50),
-    ("Elixir of Power",  "buff_str",  5),
-    ("Elixir of Wisdom", "buff_int",  5),
-    ("Antidote",         "cure",      0),
-    ("Phoenix Feather",  "revive",    1),
+    ("Health Potion",         "heal_pct",    25),
+    ("Greater Health Potion", "heal_pct",    50),
+    ("Mana Potion",           "heal_mp_pct", 30),
+    ("Greater Mana Potion",   "heal_mp_pct", 60),
+    ("Elixir of Power",       "buff_str",    5),
+    ("Elixir of Wisdom",      "buff_int",    5),
+    ("Antidote",              "cure",        0),
+    ("Phoenix Feather",       "revive",      1),
 ]
 
 
 class Item:
-    def __init__(self, name, item_type, rarity, value, stats=None, effect=None, effect_value=0):
+    def __init__(self, name, item_type, rarity, value, stats=None, effect=None, effect_value=0, effect_duration=0):
         self.name = name
         self.item_type = item_type   # "weapon", "armor", "consumable"
         self.rarity = rarity
@@ -41,6 +41,7 @@ class Item:
         self.stats = stats or {}     # {"atk": 5, "def": 3, ...}
         self.effect = effect         # for consumables
         self.effect_value = effect_value
+        self.effect_duration = effect_duration  # turns for temp buffs
 
     def colored_name(self):
         color = RARITY_COLORS.get(self.rarity, "")
@@ -95,7 +96,7 @@ def generate_armor(level=1, rarity=None):
     prefix = random.choice(ARMOR_PREFIXES)
     aname  = random.choice(ARMOR_NAMES)
     name   = f"{prefix} {aname}"
-    base_def = int((3 + level) * mult)
+    base_def = int((4 + level * 2) * mult)
     stats = {"def": base_def}
     if random.random() < 0.3:
         stats["hp"] = random.randint(5, int(15 * mult))

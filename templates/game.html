@@ -39,6 +39,24 @@
       padding-left: max(var(--safe-l), 0px);
       padding-right: max(var(--safe-r), 0px);
     }
+    body.zone-1 { background: linear-gradient(180deg, #0d0d1a 0%, #0d1a0f 100%); }
+    body.zone-2 { background: linear-gradient(180deg, #0d0d1a 0%, #0a0f0a 100%); }
+    body.zone-3 { background: linear-gradient(180deg, #0d0d1a 0%, #1a0d0d 100%); }
+    body.zone-4 { background: linear-gradient(180deg, #0d0d1a 0%, #0d0014 100%); }
+    body.zone-5 { background: linear-gradient(180deg, #0d0d1a 0%, #1a0a00 100%); }
+
+    /* ── Animations ── */
+    @keyframes hp-shake     { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-6px)} 60%{transform:translateX(4px)} }
+    @keyframes crit-flash   { 0%{background:rgba(251,191,36,0)} 30%{background:rgba(251,191,36,0.4)} 100%{background:rgba(251,191,36,0)} }
+    @keyframes levelup-glow { 50%{box-shadow:0 0 24px 8px var(--yellow)} }
+    @keyframes screen-fade  { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+    @keyframes enemy-idle   { 50%{transform:translateY(-4px)} }
+
+    .screen { animation: screen-fade 0.25s ease-out; }
+    .bar-track.damaged  { animation: hp-shake 0.4s ease; }
+    .enemy-card.crit-flash { animation: crit-flash 0.5s ease; }
+    .status-bar.levelup { animation: levelup-glow 1.2s ease; }
+
     .screen {
       max-width: 430px;
       margin: 0 auto;
@@ -73,6 +91,7 @@
     .bar-hp-cr { background: var(--red); }
     .bar-mp   { background: var(--blue); }
     .bar-xp   { background: var(--purple); }
+    .bar-sk   { background: var(--cyan); }
     .status-meta { display: flex; gap: 12px; margin-top: 6px; font-size: 12px; flex-wrap: wrap; }
     .meta-badge { color: var(--dim); }
     .meta-badge span { color: var(--yellow); }
@@ -117,6 +136,7 @@
     .msg-levelup  { border-color: var(--yellow); color: var(--yellow); font-weight: bold; }
     .msg-dim      { border-color: var(--dim);    color: var(--dim); }
     .msg-xp       { border-color: var(--yellow); color: var(--yellow); }
+    .msg-lore     { border-color: var(--yellow); color: var(--yellow); font-style: italic; font-size: 12px; }
 
     /* ── Buttons ── */
     button, .btn {
@@ -251,6 +271,14 @@
       margin-bottom: 10px;
     }
     .enemy-name { font-size: 16px; font-weight: bold; color: var(--red); margin-bottom: 6px; }
+    .enemy-sprite {
+      display: block;
+      text-align: center;
+      font-size: 48px;
+      line-height: 1;
+      margin: 6px 0 8px;
+      animation: enemy-idle 2s ease-in-out infinite;
+    }
     .combat-log {
       max-height: 180px;
       overflow-y: auto;
@@ -340,9 +368,100 @@
 
     /* ── Divider ── */
     hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+
+    /* ── Profession cards ── */
+    .prof-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 10px;
+    }
+    .prof-card-name { font-size: 16px; font-weight: bold; margin-bottom: 4px; }
+    .prof-card-passive { font-size: 12px; color: var(--green); margin-bottom: 6px; font-style: italic; }
+    .prof-card-stats { font-size: 11px; color: var(--dim); margin-bottom: 10px; }
+
+    /* ── Resource summary ── */
+    .res-summary {
+      font-size: 12px;
+      color: var(--dim);
+      padding: 6px 10px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 10px;
+      word-break: break-word;
+    }
+    .res-summary span { color: var(--yellow); }
+
+    /* ── Seal counter ── */
+    .seal-bar {
+      font-size: 12px;
+      color: var(--yellow);
+      text-align: center;
+      padding: 6px;
+      margin-bottom: 10px;
+      border: 1px solid var(--yellow);
+      border-radius: 6px;
+      background: rgba(251,191,36,0.05);
+    }
+
+    /* ── Skill tabs ── */
+    .tab-row {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 10px;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .tab-btn {
+      flex-shrink: 0;
+      padding: 8px 12px;
+      background: var(--card2);
+      color: var(--dim);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+      font-family: 'Courier New', monospace;
+      white-space: nowrap;
+      -webkit-appearance: none;
+    }
+    .tab-btn.active { background: var(--card); color: var(--cyan); border-color: var(--cyan); }
+
+    /* ── Recipe card ── */
+    .recipe-card {
+      background: var(--card2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 8px;
+    }
+    .recipe-card.locked { opacity: 0.5; }
+    .recipe-name { font-size: 13px; font-weight: bold; color: var(--text); margin-bottom: 4px; }
+    .recipe-meta { font-size: 11px; color: var(--dim); margin-bottom: 6px; }
+    .recipe-inputs { font-size: 12px; margin-bottom: 6px; }
+    .have-yes { color: var(--green); }
+    .have-no  { color: var(--red); }
+
+    /* ── Gather skill block ── */
+    .gather-block {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+    .gather-hdr { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .gather-icon { font-size: 20px; }
+    .gather-skill-name { font-size: 14px; font-weight: bold; color: var(--cyan); flex: 1; }
+    .gather-lv { font-size: 12px; color: var(--yellow); }
+    .gather-resources-list { font-size: 12px; color: var(--dim); margin-bottom: 8px; }
+    .gather-resources-list .unlocked { color: var(--text); }
+    .gather-resources-list .locked-res { color: var(--dim); }
   </style>
 </head>
-<body>
+<body class="zone-{{ state.zone if state.zone else 1 }}">
 <div class="screen">
 
 {# ═══════════════════════════════ TITLE ═══════════════════════════════ #}
@@ -404,6 +523,63 @@
     </div>
   </form>
 
+{# ═══════════════════════════════ TRADE PROFESSION CHOICE ═══════════════════════════════ #}
+{% elif state.screen == 'trade_prof_choice' %}
+  <p class="page-title">Choose Your Trade</p>
+  <p style="color:var(--dim);font-size:13px;margin-bottom:14px;">
+    Your trade profession shapes how you gather and craft resources. It grants +50% XP in two related skills and a starting resource bundle.
+  </p>
+  <form method="post" action="/action">
+    {% for tp_name, tp_data in trade_professions.items() %}
+    <div class="prof-card" style="border-color:var(--yellow);">
+      <div class="prof-card-name" style="color:var(--yellow);">{{ tp_data.icon }} {{ tp_name }}</div>
+      <div class="prof-card-passive">{{ tp_data.desc }}</div>
+      <div class="prof-card-stats">
+        Bonus skills: {{ tp_data.bonus_skills | join(' &amp; ') }}<br>
+        Starts with: {% for res, qty in tp_data.start_resources.items() %}{{ qty }}× {{ res }}{% if not loop.last %}, {% endif %}{% endfor %}
+      </div>
+      <button class="btn-yellow btn-center" name="action" value="{{ tp_name }}">Choose {{ tp_name }}</button>
+    </div>
+    {% endfor %}
+  </form>
+
+{# ═══════════════════════════════ PROFESSION CHOICE ═══════════════════════════════ #}
+{% elif state.screen == 'profession_choice' %}
+  {% set p = state.player %}
+  {% set class_profs = professions.get(p.player_class, {}) %}
+  {% set stat_labels = {"max_hp":"Max HP","max_mp":"Max MP","base_str":"STR","base_dex":"DEX","base_int":"INT","base_vit":"VIT","base_lck":"LCK"} %}
+  <p class="page-title">Choose Your Path</p>
+  <p style="color:var(--yellow);font-size:13px;margin-bottom:6px;">★ You have reached Level 5!</p>
+  <p style="color:var(--dim);font-size:13px;margin-bottom:14px;">
+    Choose a specialization for your {{ p.player_class }}. This choice is permanent.
+  </p>
+  <form method="post" action="/action">
+    {% for prof_name, prof_data in class_profs.items() %}
+    {% if p.player_class == 'Warrior' %}
+      {% set border_col = 'var(--red)' %}
+      {% set btn_cls = 'btn-red' %}
+    {% elif p.player_class == 'Mage' %}
+      {% set border_col = 'var(--blue)' %}
+      {% set btn_cls = 'btn-cyan' %}
+    {% else %}
+      {% set border_col = 'var(--purple)' %}
+      {% set btn_cls = 'btn-purple' %}
+    {% endif %}
+    <div class="prof-card" style="border-color:{{ border_col }};">
+      <div class="prof-card-name" style="color:{{ border_col }};">{{ prof_name }}</div>
+      <div class="prof-card-passive">{{ prof_data.passive }}</div>
+      <div class="prof-card-stats">
+        Bonuses:
+        {% for stat_key, val in prof_data.stat_bonus.items() %}
+          {% if val > 0 %}+{{ val }}{% else %}{{ val }}{% endif %} {{ stat_labels.get(stat_key, stat_key) }}
+        {% endfor %}<br>
+        First skill: {{ prof_data.skills[0].name }} ({{ prof_data.skills[0].desc }})
+      </div>
+      <button class="{{ btn_cls }} btn-center" name="action" value="{{ prof_name }}">Choose {{ prof_name }}</button>
+    </div>
+    {% endfor %}
+  </form>
+
 {# ═══════════════════════════════ HUB ═══════════════════════════════ #}
 {% elif state.screen == 'hub' %}
   {% set p = state.player %}
@@ -411,7 +587,7 @@
   {% set mp_pct = (p.mp / p.max_mp * 100)|int %}
   {% set xp_pct = (p.xp / p.xp_next * 100)|int %}
   <div class="status-bar">
-    <div class="status-name">{{ p.name }} &nbsp;·&nbsp; {{ p.player_class }} &nbsp;·&nbsp; Lv {{ p.level }}</div>
+    <div class="status-name">{{ p.name }} &nbsp;·&nbsp; {{ p.player_class }}{% if p.profession %} / {{ p.profession }}{% endif %} &nbsp;·&nbsp; Lv {{ p.level }}</div>
     <div class="bar-row">
       <div class="bar-lbl">HP</div>
       <div class="bar-track">
@@ -434,12 +610,23 @@
       <div class="meta-badge">Gold: <span>{{ p.gold }}g</span></div>
       <div class="meta-badge">ATK: <span>{{ p.attack|int }}</span></div>
       <div class="meta-badge">DEF: <span>{{ p.defense|int }}</span></div>
+      {% if p.trade_profession %}<div class="meta-badge">Trade: <span>{{ p.trade_profession }}</span></div>{% endif %}
       {% if p.dot > 0 %}<div class="meta-badge" style="color:var(--purple)">POISONED</div>{% endif %}
       {% for buff_name in p.buffs %}<div class="meta-badge" style="color:var(--green)">{{ buff_name }}({{ p.buffs[buff_name] }}t)</div>{% endfor %}
     </div>
   </div>
 
+  {% if state.narrative_stage > 0 %}
+  <div class="seal-bar">✦ Seals Broken: {{ state.narrative_stage }}/5 {% if state.narrative_stage >= 5 %}— THE DRAGON AWAKENS{% endif %}</div>
+  {% endif %}
+
   <p class="page-title">{{ zones[state.zone].name }}</p>
+
+  {% if p.resources %}
+  <div class="res-summary">
+    Resources: {% for rname, rqty in p.resources.items() %}<span>{{ rname }} ×{{ rqty }}</span>{% if not loop.last %} · {% endif %}{% endfor %}
+  </div>
+  {% endif %}
 
   {% if state.messages %}
   <div class="msgs">
@@ -459,6 +646,8 @@
       <button name="action" value="inventory">📦 Inventory</button>
       <button name="action" value="skills">🌟 Skills {% if p.skill_points > 0 %}<span style="color:var(--yellow)">({{ p.skill_points }} SP)</span>{% endif %}</button>
       <button name="action" value="abilities">✨ Abilities</button>
+      <button name="action" value="gather">⛏ Gather</button>
+      <button name="action" value="craft">⚒ Craft</button>
       <button name="action" value="stats">📊 Stats</button>
       <button name="action" value="quit" class="btn-dim">🚪 Quit</button>
     </div>
@@ -487,9 +676,10 @@
       <div class="bar-track"><div class="bar-fill bar-mp" style="width:{{ mp_pct }}%"></div></div>
       <div class="bar-nums" style="color:var(--blue)">{{ p.mp }}/{{ p.max_mp }}</div>
     </div>
-    {% if p.buffs %}
+    {% if p.buffs or p.temp_buffs or p.dot > 0 %}
     <div class="status-meta">
       {% for b in p.buffs %}<div class="meta-badge" style="color:var(--green)">{{ b }}({{ p.buffs[b] }}t)</div>{% endfor %}
+      {% for tb in p.temp_buffs %}<div class="meta-badge" style="color:var(--green)">{{ tb.stat | upper }}+{{ tb.amount }}({{ tb.turns }}t)</div>{% endfor %}
       {% if p.dot > 0 %}<div class="meta-badge" style="color:var(--purple)">POISONED</div>{% endif %}
     </div>
     {% endif %}
@@ -497,6 +687,7 @@
 
   <div class="enemy-card">
     <div class="enemy-name">{{ e.name }}{% if e.is_boss %} 💀{% endif %} <span style="font-size:12px;color:var(--dim);font-weight:normal;">Lv ~{{ e.level }}</span></div>
+    <span class="enemy-sprite">{{ enemy_sprites.get(e.name, '👾') }}</span>
     <div class="bar-row">
       <div class="bar-lbl">HP</div>
       <div class="bar-track">
@@ -800,7 +991,7 @@
   {% endif %}
 
   {% if p.skills_learned %}
-  <div class="card-head">Learned</div>
+  <div class="card-head">Learned — {{ p.player_class }} Skills</div>
   <div class="card">
     {% for sk in p.skills_learned %}
     <div style="font-size:13px;color:var(--green);padding:4px 0;">✓ {{ sk.name }} <span style="color:var(--dim);">— {{ sk.desc }}</span></div>
@@ -810,7 +1001,7 @@
 
   {% set avail = p.available_skills() %}
   {% if avail %}
-  <div class="card-head">Available</div>
+  <div class="card-head">Available — {{ p.player_class }} Skills</div>
   <form method="post" action="/action">
     {% for i, sk in enumerate(avail) %}
     <button class="{% if p.skill_points >= sk.cost %}btn-green{% else %}btn-dim{% endif %}"
@@ -822,7 +1013,34 @@
     {% endfor %}
   </form>
   {% else %}
-  <div style="color:var(--dim);text-align:center;padding:20px 0;">All skills learned!</div>
+  <div style="color:var(--dim);text-align:center;padding:10px 0;">All class skills learned!</div>
+  {% endif %}
+
+  {% if p.profession %}
+  <hr>
+  <div class="card-head" style="color:var(--cyan);">{{ p.profession }} Specialization</div>
+  {% if p.prof_skills_learned %}
+  <div class="card">
+    {% for sk in p.prof_skills_learned %}
+    <div style="font-size:13px;color:var(--cyan);padding:4px 0;">✓ {{ sk.name }} <span style="color:var(--dim);">— {{ sk.desc }}</span></div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% set prof_avail = p.available_prof_skills() %}
+  {% if prof_avail %}
+  <form method="post" action="/action">
+    {% for i, sk in enumerate(prof_avail) %}
+    <button class="{% if p.skill_points >= sk.cost %}btn-cyan{% else %}btn-dim{% endif %}"
+            name="action" value="learn_prof_{{ i }}"
+            {% if p.skill_points < sk.cost %}disabled{% endif %}>
+      {{ sk.name }} <span style="color:var(--dim);font-size:12px;">— {{ sk.desc }}</span>
+      <span style="color:var(--yellow);font-size:12px;display:block;margin-top:2px;">Cost: {{ sk.cost }} SP</span>
+    </button>
+    {% endfor %}
+  </form>
+  {% else %}
+  <div style="color:var(--dim);text-align:center;padding:10px 0;">All specialization skills learned!</div>
+  {% endif %}
   {% endif %}
 
 {# ═══════════════════════════════ ABILITIES ═══════════════════════════════ #}
@@ -873,6 +1091,8 @@
     <div class="stat-cell"><div class="stat-lbl">Kills</div><div class="stat-val">{{ p.kills }}</div></div>
     <div class="stat-cell"><div class="stat-lbl">Quests</div><div class="stat-val">{{ p.quests_completed }}</div></div>
   </div>
+  {% if p.profession %}<div style="font-size:13px;color:var(--cyan);margin-bottom:8px;">Profession: {{ p.profession }}</div>{% endif %}
+  {% if p.trade_profession %}<div style="font-size:13px;color:var(--yellow);margin-bottom:8px;">Trade: {{ p.trade_profession }}</div>{% endif %}
   {% set weap = p.equipment.get('weapon') %}
   {% set arm  = p.equipment.get('armor') %}
   <div class="card">
@@ -882,6 +1102,166 @@
     <div style="font-size:12px;color:var(--dim);margin-bottom:4px;margin-top:8px;">Armor</div>
     <div class="r-{{ arm.rarity if arm else 'Common' }}">{{ arm.name if arm else '—' }}</div>
   </div>
+  {% if p.gathering_skills %}
+  <div class="card-head" style="margin-top:8px;">Gathering Skills</div>
+  <div class="stat-grid">
+    {% for sk_name, sk_data in p.gathering_skills.items() %}
+    <div class="stat-cell">
+      <div class="stat-lbl">{{ sk_name[:6] }}</div>
+      <div class="stat-val" style="font-size:15px;color:var(--cyan);">Lv {{ sk_data.level }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="card-head">Crafting Skills</div>
+  <div class="stat-grid">
+    {% for sk_name, sk_data in p.crafting_skills.items() %}
+    <div class="stat-cell">
+      <div class="stat-lbl">{{ sk_name[:6] }}</div>
+      <div class="stat-val" style="font-size:15px;color:var(--yellow);">Lv {{ sk_data.level }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+{# ═══════════════════════════════ GATHER ═══════════════════════════════ #}
+{% elif state.screen == 'gather' %}
+  {% set p = state.player %}
+  {% set cur_zone_res = zone_resources.get(state.zone, {}) %}
+  <form method="post" action="/action">
+    <button class="back-btn" name="action" value="back">← Back</button>
+  </form>
+  <p class="page-title">Gather — {{ zones[state.zone].name }}</p>
+
+  {% if p.resources %}
+  <div class="res-summary">
+    <b style="color:var(--cyan);">Resources:</b> {% for rname, rqty in p.resources.items() %}<span>{{ rname }} ×{{ rqty }}</span>{% if not loop.last %} · {% endif %}{% endfor %}
+  </div>
+  {% endif %}
+
+  {% if state.messages %}
+  <div class="msgs">{% for m in state.messages %}<div class="msg msg-{{ m.kind }}">{{ m.text }}</div>{% endfor %}</div>
+  {% endif %}
+
+  <form method="post" action="/action">
+    {% for skill_name in gathering_skills %}
+    {% set sk_data = p.gathering_skills[skill_name] %}
+    {% set sk_lv = sk_data.level %}
+    {% set sk_xp = sk_data.xp %}
+    {% set xp_start = (sk_lv * (sk_lv - 1) * 50)|int %}
+    {% set xp_need = sk_lv * 100 %}
+    {% set xp_in_lv = sk_xp - xp_start %}
+    {% set xp_pct = [(xp_in_lv * 100 // xp_need), 100]|min if xp_need > 0 else 0 %}
+    {% set zone_skill_res = cur_zone_res.get(skill_name, []) %}
+    <div class="gather-block">
+      <div class="gather-hdr">
+        <span class="gather-icon">{{ skill_icons.get(skill_name, '?') }}</span>
+        <span class="gather-skill-name">{{ skill_name }}</span>
+        <span class="gather-lv">Lv {{ sk_lv }}</span>
+      </div>
+      <div class="bar-row" style="margin-bottom:8px;">
+        <div class="bar-lbl" style="font-size:10px;">XP</div>
+        <div class="bar-track"><div class="bar-fill bar-sk" style="width:{{ xp_pct }}%"></div></div>
+        <div class="bar-nums" style="color:var(--cyan);font-size:10px;">{{ xp_in_lv }}/{{ xp_need }}</div>
+      </div>
+      {% if zone_skill_res %}
+      <div class="gather-resources-list">
+        {% for res_name, wt, req_lv in zone_skill_res %}
+        {% if sk_lv >= req_lv %}
+        <span class="unlocked">{{ res_name }}</span>
+        {% else %}
+        <span class="locked-res">🔒 {{ res_name }} (Lv {{ req_lv }})</span>
+        {% endif %}
+        {% if not loop.last %} · {% endif %}
+        {% endfor %}
+      </div>
+      <button class="btn-cyan" name="action" value="gather_{{ skill_name }}">{{ gather_button_labels.get(skill_name, 'Gather') }}</button>
+      {% else %}
+      <div style="font-size:12px;color:var(--dim);">Nothing to gather here.</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </form>
+
+{# ═══════════════════════════════ CRAFT ═══════════════════════════════ #}
+{% elif state.screen == 'craft' %}
+  {% set p = state.player %}
+  {% set cur_skill = state.craft_skill %}
+  <form method="post" action="/action">
+    <button class="back-btn" name="action" value="back">← Back</button>
+  </form>
+  <p class="page-title">Craft</p>
+
+  {% if p.resources %}
+  <div class="res-summary">
+    <b style="color:var(--cyan);">Resources:</b> {% for rname, rqty in p.resources.items() %}<span>{{ rname }} ×{{ rqty }}</span>{% if not loop.last %} · {% endif %}{% endfor %}
+  </div>
+  {% else %}
+  <div class="res-summary" style="color:var(--dim);">No resources. Go gather first!</div>
+  {% endif %}
+
+  {% if state.messages %}
+  <div class="msgs">{% for m in state.messages %}<div class="msg msg-{{ m.kind }}">{{ m.text }}</div>{% endfor %}</div>
+  {% endif %}
+
+  {# Tab bar #}
+  <form method="post" action="/action" style="margin-bottom:0;">
+    <div class="tab-row">
+      {% for sk_name in crafting_skills_list %}
+      {% set sk_data = p.crafting_skills[sk_name] %}
+      <button type="submit" class="tab-btn {% if sk_name == cur_skill %}active{% endif %}"
+              name="action" value="tab_{{ sk_name }}">
+        {{ skill_icons.get(sk_name, '') }} {{ sk_name }} Lv{{ sk_data.level }}
+      </button>
+      {% endfor %}
+    </div>
+  </form>
+
+  {# Recipes for current skill #}
+  {% set recipes = crafting_recipes.get(cur_skill, []) %}
+  {% set cur_sk_data = p.crafting_skills.get(cur_skill, {"level": 1}) %}
+  {% set cur_sk_lv = cur_sk_data.level %}
+
+  {% if recipes %}
+  <form method="post" action="/action">
+    {% for i, recipe in enumerate(recipes) %}
+    {% set meets_req = cur_sk_lv >= recipe.req %}
+    {% set ns = namespace(has_all=true) %}
+    {% for res_name, qty in recipe.inputs.items() %}
+      {% if p.resources.get(res_name, 0) < qty %}{% set ns.has_all = false %}{% endif %}
+    {% endfor %}
+    <div class="recipe-card {% if not meets_req %}locked{% endif %}">
+      <div class="recipe-name">{{ recipe.name }}</div>
+      <div class="recipe-meta">
+        Req Lv {{ recipe.req }} · +{{ recipe.xp }} XP ·
+        {% if recipe.output_type == 'resource' %}→ {{ recipe.output_name }}
+        {% elif recipe.output_type == 'consumable' %}→ {{ recipe.output_name }}
+        {% elif recipe.output_type == 'weapon' %}→ Weapon (Lv {{ recipe.level_param }})
+        {% elif recipe.output_type == 'armor' %}→ Armor (Lv {{ recipe.level_param }})
+        {% endif %}
+      </div>
+      <div class="recipe-inputs">
+        {% for res_name, qty in recipe.inputs.items() %}
+        {% set have = p.resources.get(res_name, 0) %}
+        <span class="{% if have >= qty %}have-yes{% else %}have-no{% endif %}">
+          {% if have >= qty %}✓{% else %}✗{% endif %} {{ qty }}× {{ res_name }} (have {{ have }})
+        </span>{% if not loop.last %} &nbsp;{% endif %}
+        {% endfor %}
+      </div>
+      {% if meets_req %}
+      <button class="{% if ns.has_all %}btn-green{% else %}btn-dim{% endif %} btn-sm"
+              name="action" value="craft_{{ cur_skill }}_{{ i }}"
+              {% if not ns.has_all %}disabled{% endif %}>
+        {% if ns.has_all %}Craft{% else %}Missing resources{% endif %}
+      </button>
+      {% else %}
+      <div style="font-size:12px;color:var(--dim);">🔒 Requires {{ cur_skill }} Lv {{ recipe.req }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </form>
+  {% else %}
+  <div style="color:var(--dim);text-align:center;padding:20px 0;">No recipes available.</div>
+  {% endif %}
 
 {# ═══════════════════════════════ GAME OVER ═══════════════════════════════ #}
 {% elif state.screen == 'game_over' %}
@@ -905,5 +1285,170 @@
 {% endif %}
 
 </div>
+
+<script>
+// ── Web Audio API sound engine ────────────────────────────────────────────────
+var ctx = null;
+
+// iOS AudioContext unlock — must happen on first user gesture
+document.addEventListener('touchstart', function() {
+  if (!ctx) {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  ctx.resume();
+}, { once: true, passive: true });
+
+function playAttack() {
+  if (!ctx) return;
+  var t = ctx.currentTime;
+  var osc = ctx.createOscillator(), g = ctx.createGain();
+  osc.type = 'sawtooth'; osc.frequency.value = 120;
+  g.gain.setValueAtTime(0.3, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+  osc.connect(g); g.connect(ctx.destination);
+  osc.start(t); osc.stop(t + 0.3);
+}
+
+function playCrit() {
+  if (!ctx) return;
+  var t = ctx.currentTime;
+  [880, 1320, 1760].forEach(function(f, i) {
+    var osc = ctx.createOscillator(), g = ctx.createGain();
+    osc.frequency.value = f;
+    g.gain.setValueAtTime(0.2, t + i * 0.1);
+    g.gain.exponentialRampToValueAtTime(0.001, t + i * 0.1 + 0.18);
+    osc.connect(g); g.connect(ctx.destination);
+    osc.start(t + i * 0.1); osc.stop(t + i * 0.1 + 0.22);
+  });
+}
+
+function playSpell() {
+  if (!ctx) return;
+  var t = ctx.currentTime;
+  var osc = ctx.createOscillator(), g = ctx.createGain();
+  osc.frequency.setValueAtTime(300, t);
+  osc.frequency.linearRampToValueAtTime(900, t + 0.15);
+  osc.frequency.linearRampToValueAtTime(600, t + 0.3);
+  g.gain.setValueAtTime(0.2, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+  osc.connect(g); g.connect(ctx.destination);
+  osc.start(t); osc.stop(t + 0.35);
+}
+
+function playEnemyAttack() {
+  if (!ctx) return;
+  var t = ctx.currentTime;
+  var sz = Math.floor(ctx.sampleRate * 0.2);
+  var buf = ctx.createBuffer(1, sz, ctx.sampleRate);
+  var d = buf.getChannelData(0);
+  for (var i = 0; i < sz; i++) d[i] = Math.random() * 2 - 1;
+  var noise = ctx.createBufferSource(); noise.buffer = buf;
+  var flt = ctx.createBiquadFilter(); flt.type = 'bandpass'; flt.frequency.value = 200;
+  var g = ctx.createGain();
+  g.gain.setValueAtTime(0.25, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+  noise.connect(flt); flt.connect(g); g.connect(ctx.destination);
+  noise.start(t); noise.stop(t + 0.2);
+  var osc = ctx.createOscillator(), og = ctx.createGain();
+  osc.type = 'sawtooth'; osc.frequency.value = 60;
+  og.gain.setValueAtTime(0.2, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+  osc.connect(og); og.connect(ctx.destination);
+  osc.start(t); osc.stop(t + 0.25);
+}
+
+function playLevelup() {
+  if (!ctx) return;
+  var t = ctx.currentTime;
+  [523, 659, 784, 1047].forEach(function(f, i) {
+    var osc = ctx.createOscillator(), g = ctx.createGain();
+    osc.frequency.value = f;
+    g.gain.setValueAtTime(0.2, t + i * 0.12);
+    g.gain.exponentialRampToValueAtTime(0.001, t + i * 0.12 + 0.28);
+    osc.connect(g); g.connect(ctx.destination);
+    osc.start(t + i * 0.12); osc.stop(t + i * 0.12 + 0.32);
+  });
+}
+
+function playVictory() {
+  if (!ctx) return;
+  var t = ctx.currentTime;
+  [523, 659, 784].forEach(function(f) {
+    var osc = ctx.createOscillator(), g = ctx.createGain();
+    osc.frequency.value = f;
+    g.gain.setValueAtTime(0.15, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+    osc.connect(g); g.connect(ctx.destination);
+    osc.start(t); osc.stop(t + 0.5);
+  });
+  [523, 659, 784, 1047].forEach(function(f) {
+    var osc = ctx.createOscillator(), g = ctx.createGain();
+    osc.frequency.value = f;
+    g.gain.setValueAtTime(0.15, t + 0.55); g.gain.exponentialRampToValueAtTime(0.001, t + 1.1);
+    osc.connect(g); g.connect(ctx.destination);
+    osc.start(t + 0.55); osc.stop(t + 1.2);
+  });
+}
+
+function playDeath() {
+  if (!ctx) return;
+  var t = ctx.currentTime;
+  [392, 330, 277, 220].forEach(function(f, i) {
+    var osc = ctx.createOscillator(), g = ctx.createGain();
+    osc.frequency.value = f;
+    g.gain.setValueAtTime(0.2, t + i * 0.22);
+    g.gain.exponentialRampToValueAtTime(0.001, t + i * 0.22 + 0.35);
+    osc.connect(g); g.connect(ctx.destination);
+    osc.start(t + i * 0.22); osc.stop(t + i * 0.22 + 0.4);
+  });
+}
+
+function playUIClick() {
+  if (!ctx) return;
+  var t = ctx.currentTime;
+  var osc = ctx.createOscillator(), g = ctx.createGain();
+  osc.type = 'square'; osc.frequency.value = 1200;
+  g.gain.setValueAtTime(0.08, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
+  osc.connect(g); g.connect(ctx.destination);
+  osc.start(t); osc.stop(t + 0.03);
+}
+
+// ── Touch sound triggers ──────────────────────────────────────────────────────
+document.addEventListener('touchstart', function(e) {
+  var btn = e.target.closest('button');
+  if (!btn || !ctx) return;
+  var val = btn.value || '';
+  if (val === 'attack') playAttack();
+  else if (val.indexOf('ability_') === 0) playSpell();
+  else playUIClick();
+}, { passive: true });
+
+// ── Page-load animation and sound triggers ────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function() {
+  // Crit flash + sound
+  if (document.querySelector('.msg-crit')) {
+    var ec = document.querySelector('.enemy-card');
+    if (ec) ec.classList.add('crit-flash');
+    setTimeout(playCrit, 100);
+  }
+  // Enemy attack + HP bar shake
+  if (document.querySelector('.msg-enemy')) {
+    var bt = document.querySelector('.bar-track');
+    if (bt) bt.classList.add('damaged');
+    setTimeout(playEnemyAttack, 100);
+  }
+  // Level up glow + sound
+  if (document.querySelector('.msg-levelup')) {
+    var sb = document.querySelector('.status-bar');
+    if (sb) sb.classList.add('levelup');
+    setTimeout(playLevelup, 100);
+  }
+  // Victory sound
+  if (document.querySelector('.msg-victory')) {
+    setTimeout(playVictory, 100);
+  }
+  // Death sound
+  if (document.querySelector('.gameover-title')) {
+    setTimeout(playDeath, 300);
+  }
+});
+</script>
 </body>
 </html>

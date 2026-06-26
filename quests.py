@@ -58,8 +58,8 @@ class Quest:
             if name and (name.lower() in self.target_name.lower() or self.target_name.lower() in name.lower()):
                 self.current += 1
                 return True
-        elif self.quest_type == "collect" and event_type == "collect":
-            if name == self.target_name:
+        elif self.quest_type == "collect" and event_type == "kill":
+            if random.random() < 0.33:
                 self.current += 1
                 return True
         elif self.quest_type == "explore" and event_type == "explore":
