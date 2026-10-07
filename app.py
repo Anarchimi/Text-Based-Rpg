@@ -12,7 +12,7 @@ from player import Player, PROFESSIONS
 from abilities import PROFESSION_ABILITIES
 from enemies import BOSS_TEMPLATES, spawn_enemy, spawn_final_boss
 from quests import BOUNTY_LEADER_CHANCE
-from combat import ability_cost, do_combat_turn, end_combat, hit_player  # noqa: F401  (hit_player re-exported for tests)
+from combat import ability_cost, defend_reduction, do_combat_turn, end_combat, hit_player  # noqa: F401  (hit_player re-exported for tests)
 from quests import QuestLog, generate_quest
 from items import (generate_shop_stock, generate_weapon, generate_armor, generate_consumable, upgrade_cost,
                    STAT_LABELS, LEGENDARY_EFFECTS)
@@ -45,6 +45,7 @@ app.jinja_env.globals['depth_effects'] = depth_effects
 app.jinja_env.globals['max_depth'] = MAX_DEPTH
 app.jinja_env.globals['profession_abilities'] = PROFESSION_ABILITIES
 app.jinja_env.globals['ability_cost'] = ability_cost
+app.jinja_env.globals['defend_reduction'] = defend_reduction
 app.jinja_env.globals['STAT_LABELS'] = STAT_LABELS
 app.jinja_env.globals['LEGENDARY_EFFECTS'] = LEGENDARY_EFFECTS
 
@@ -188,6 +189,16 @@ def check_profession_unlock(state, player, fallback_screen):
 
 # ── Exploring ─────────────────────────────────────────────────────────────────
 
+def nap_restore(player):
+    """A nap restores half of what's *missing* (rounded up), so repeated naps never beat
+    the Full Rest: each costs at least 40% of the base price but closes only half the gap."""
+    return -(-(player.max_hp - player.hp) // 2), -(-(player.max_mp - player.mp) // 2)
+
+
+def fully_rested(player):
+    return player.hp >= player.max_hp and player.mp >= player.max_mp
+
+
 def inn_prices(player):
     """(full rest, nap) in gold. Scales with level and with how much HP *and* MP is missing."""
     missing = (player.max_hp - player.hp) // 8 + (player.max_mp - player.mp) // 8
@@ -196,6 +207,8 @@ def inn_prices(player):
 
 
 app.jinja_env.globals['inn_prices'] = inn_prices
+app.jinja_env.globals['fully_rested'] = fully_rested
+app.jinja_env.globals['nap_restore'] = nap_restore
 
 
 def reset_depth(state):
@@ -614,7 +627,7 @@ def action():
             clear_msgs(state)
         elif act in ('full_rest', 'nap'):
             cost = full_cost if act == 'full_rest' else nap_cost
-            if player.hp >= player.max_hp and player.mp >= player.max_mp:
+            if fully_rested(player):
                 add_msg(state, 'dim', "You're already fully rested.")
             elif player.gold < cost:
                 add_msg(state, 'danger', f'Not enough gold! ({cost}g)')
@@ -624,9 +637,10 @@ def action():
                     player.hp, player.mp = player.max_hp, player.max_mp
                     add_msg(state, 'success', f'You rest well. HP and MP fully restored! (-{cost}g)')
                 else:
-                    player.hp = min(player.max_hp, player.hp + player.max_hp // 2)
-                    player.mp = min(player.max_mp, player.mp + player.max_mp // 2)
-                    add_msg(state, 'success', f'You take a short nap. HP/MP partially restored. (-{cost}g)')
+                    hp, mp = nap_restore(player)
+                    player.hp += hp
+                    player.mp += mp
+                    add_msg(state, 'success', f'You take a short nap: +{hp} HP, +{mp} MP. (-{cost}g)')
                 reset_depth(state)
 
     elif screen == 'quest_board':

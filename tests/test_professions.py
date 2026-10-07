@@ -323,7 +323,7 @@ def test_cooked_items_are_tagged_food():
     assert item.category == 'food'
 
 
-def test_woodsmans_eye_halves_traps_and_forages_more():
+def test_woodsmans_eye_halves_traps_and_forages_more(monkeypatch):
     import world
     from conftest import make_player
     def trap_pct(trade):
@@ -335,13 +335,30 @@ def test_woodsmans_eye_halves_traps_and_forages_more():
                 if o['kind'] == 'treasure':
                     return o['trap_pct']
     assert trap_pct('Fletcher') == trap_pct('Fisher') // 2
-    def forage(trade):
+    def fixed_gather(player, zone, skill):  # isolate the perk from gathering's own randomness
+        player.add_resource('Log', 1)
+        return 'Log', 1, 10, False
+    monkeypatch.setattr(crafting, 'gather_resource', fixed_gather)
+
+    def forage(trade, skill):
         p = make_player('Rogue', level=8)
         p.trade_profession, p.resources = trade, {}
-        random.seed(1)
-        world.resolve_option({'kind': 'forage', 'skill': 'Mining'}, p, 1, set(), 0)
+        world.resolve_option({'kind': 'forage', 'skill': skill}, p, 1, set(), 0)
         return sum(p.resources.values())
-    assert forage('Fletcher') == forage('Fisher') + 1
+    assert forage('Fletcher', 'Woodcutting') == forage('Fisher', 'Woodcutting') + 1
+    assert forage('Fletcher', 'Mining') == forage('Fisher', 'Mining'), 'the bonus is for wood only'
+
+
+def test_fletcher_forage_paths_lead_to_wood():
+    import world
+    from conftest import make_player
+    p = make_player('Rogue', level=8)
+    p.trade_profession = 'Fletcher'
+    seen = set()
+    for seed in range(80):
+        random.seed(seed)
+        seen |= {o['skill'] for o in world.generate_explore_options(p, 2, set(), 0) if o['kind'] == 'forage'}
+    assert seen == {'Woodcutting'}
 
 
 def test_old_ranger_trade_is_renamed_to_fletcher():

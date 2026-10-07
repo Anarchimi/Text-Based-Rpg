@@ -39,7 +39,7 @@ def hit_player(player, dmg, clog, defending=False, attacker=None):
         clog('buff', 'You evade the attack!')
         return 0
     if defending:
-        dmg = max(1, dmg // 4 if player.has_perk('Bastion') else dmg // 2)
+        dmg = max(1, dmg * (100 - defend_reduction(player)) // 100)
     if 'Mana Shield' in player.buffs:
         absorbed = min(player.mp, dmg // 2)
         if absorbed:
@@ -66,8 +66,13 @@ def end_combat(player):
     player.deathless_used = False
 
 
+def defend_reduction(player):
+    """% of incoming damage that Defend blocks (Knight's Bastion perk raises it)."""
+    return 75 if player.has_perk('Bastion') else 50
+
+
 def ability_cost(player, ability):
-    if player.has_effect('Arcane Flow'):
+    if player.has_effect('Arcane Flow') and ability.mp_cost > 0:  # free abilities stay free
         return max(1, -(-ability.mp_cost * 3 // 4))  # 25% off, rounded up
     return ability.mp_cost
 
@@ -309,8 +314,12 @@ def _enemy_ability(player, enemy, name, spec, clog, defending):
             lost = _enemy_hit(player, enemy, mult, clog, defending)
             dodged = dodged or lost == 0
             total += lost
+            if not enemy.is_alive():  # killed by Riposte/Thorns mid-sequence
+                break
         if total:
             clog('enemy', f'-{total} HP')
+    if not enemy.is_alive():
+        return  # a dead attacker lands no rider effects (drain, DoT, stun...)
     if dodged and spec.get('hits', 1) == 1:
         return  # a dodged single hit lands no rider effect
 
@@ -412,7 +421,8 @@ def do_combat_turn(state, action, ability_idx=None, item_idx=None):
         defending = True
         regen = min(int(player.max_mp * DEFEND_MP_REGEN), player.max_mp - player.mp)
         player.mp += regen
-        clog('buff', f'You raise your guard. (half damage, no stuns this turn, +{regen} MP)')
+        reduction = defend_reduction(player)
+        clog('buff', f'You raise your guard. ({reduction}% damage reduction, no stuns this turn, +{regen} MP)')
         if player.has_effect('Bulwark'):
             healed = min(int(player.max_hp * BULWARK_HEAL), player.max_hp - player.hp)
             player.hp += healed

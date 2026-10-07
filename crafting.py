@@ -118,7 +118,7 @@ TRADE_PROFESSIONS = {
         "desc": "Woodcutting & Fletching woodsman.",
         "bonus_skills": ["Woodcutting", "Fletching"],
         "perks": ["Masterwork: fletched bows and staves come out Rare.",
-                  "Woodsman's Eye: on the trail, foraging yields +1 and treasure traps are half as likely."],
+                  "Woodsman's Eye: on the trail, forage paths lead to timber (+1 wood) and treasure traps are half as likely."],
         "start_resources": {"Oak Logs": 5, "Normal Logs": 3},
         "icon": "🏹",
     },

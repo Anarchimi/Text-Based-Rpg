@@ -88,7 +88,7 @@
     </details>
     {% endif %}
 
-    <button class="btn-yellow" name="action" value="defend">🛡 Defend <span class="ability-desc">Half damage, no stuns, +8% MP</span></button>
+    <button class="btn-yellow" name="action" value="defend">🛡 Defend <span class="ability-desc">{{ defend_reduction(p) }}% less damage, no stuns, +8% MP</span></button>
 
     <button class="btn-dim" name="action" value="flee">↩ Flee</button>
   </form>

@@ -16,6 +16,13 @@
   {% endif %}
 
   <form method="post" action="/action">
-    <button class="{{ 'btn-green' if p.gold >= prices[0] else 'btn-dim' }}" name="action" value="full_rest">🛏 Full Rest — {{ prices[0] }}g <span class="ability-desc">HP &amp; MP fully restored</span></button>
-    <button class="{{ '' if p.gold >= prices[1] else 'btn-dim' }}" name="action" value="nap">💤 Nap — {{ prices[1] }}g <span class="ability-desc">50% HP &amp; MP restored</span></button>
+    {% if fully_rested(p) %}
+    <div class="msg msg-success">You're fully rested — no need to pay for a room.</div>
+    <button class="btn-dim" disabled>🛏 Full Rest <span class="ability-desc">Already at full HP &amp; MP</span></button>
+    <button class="btn-dim" disabled>💤 Nap <span class="ability-desc">Already at full HP &amp; MP</span></button>
+    {% else %}
+    {% set nap = nap_restore(p) %}
+    <button class="{{ 'btn-green' if p.gold >= prices[0] else 'btn-dim' }}" name="action" value="full_rest">🛏 Full Rest — {{ prices[0] }}g <span class="ability-desc">Restore all HP &amp; MP</span></button>
+    <button class="{{ '' if p.gold >= prices[1] else 'btn-dim' }}" name="action" value="nap">💤 Nap — {{ prices[1] }}g <span class="ability-desc">Restore half of what's missing: +{{ nap[0] }} HP, +{{ nap[1] }} MP</span></button>
+    {% endif %}
   </form>
