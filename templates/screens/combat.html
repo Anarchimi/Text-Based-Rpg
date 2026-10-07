@@ -19,11 +19,11 @@
       <div class="bar-track"><div class="bar-fill bar-mp" style="width:{{ mp_pct }}%"></div></div>
       <div class="bar-nums" style="color:var(--blue)">{{ p.mp }}/{{ p.max_mp }}</div>
     </div>
-    {% if p.buffs or p.temp_buffs or p.dot > 0 %}
+    {% if p.buffs or p.temp_buffs or p.debuffs %}
     <div class="status-meta">
       {% for b in p.buffs %}<div class="meta-badge" style="color:var(--green)">{{ b }}({{ p.buffs[b] }}t)</div>{% endfor %}
       {% for tb in p.temp_buffs %}<div class="meta-badge" style="color:var(--green)">{{ tb.stat | upper }}+{{ tb.amount }}({{ tb.turns }}t)</div>{% endfor %}
-      {% if p.dot > 0 %}<div class="meta-badge" style="color:var(--purple)">POISONED</div>{% endif %}
+      {% for name, d in p.debuffs.items() %}<div class="meta-badge" style="color:var(--{{ 'yellow' if name == 'Stunned' else 'purple' }})">{{ name | upper }}{% if d.dmg %} {{ d.dmg }}/t{% endif %}{% if name != 'Stunned' %}({{ d.turns }}t){% endif %}</div>{% endfor %}
     </div>
     {% endif %}
   </div>
@@ -39,8 +39,11 @@
       </div>
       <div class="bar-nums" style="color:{% if ehp_pct < 25 %}var(--red){% elif ehp_pct < 50 %}var(--yellow){% else %}var(--green){% endif %}">{{ e.hp }}/{{ e.max_hp }}</div>
     </div>
+    {% if e.phase == 2 %}<div style="font-size:12px;color:var(--red);margin-top:4px;">🔥 PHASE 2</div>{% endif %}
+    {% if e.charging %}<div style="font-size:13px;color:var(--red);margin-top:4px;font-weight:bold;">⚠ CHARGING {{ e.charging | upper }} — Defend, dodge or stun!</div>{% endif %}
     {% if e.stunned %}<div style="font-size:12px;color:var(--yellow);margin-top:4px;">⚡ STUNNED</div>{% endif %}
-    {% if e.dot > 0 %}<div style="font-size:12px;color:var(--purple);margin-top:4px;">☠ POISONED ({{ e.dot_dmg }} dmg/turn)</div>{% endif %}
+    {% if e.dot > 0 %}<div style="font-size:12px;color:var(--purple);margin-top:4px;">☠ {{ e.dot_name | upper }} ({{ e.dot_dmg }} dmg/turn)</div>{% endif %}
+    {% for name in e.statuses %}<div style="font-size:12px;color:var(--{{ 'cyan' if name == 'Chilled' else 'yellow' }});margin-top:4px;">{{ {'Chilled': '❄ CHILLED (ATK -25%)', 'Enraged': '💢 ENRAGED (ATK +30%)', 'Shielded': '🛡 SHIELDED (half damage)', 'Evading': '💨 EVADING (dodges next hit)'}.get(name, name) }}</div>{% endfor %}
   </div>
 
   <div class="card-head">Turn {{ state.combat_turn }}</div>
@@ -84,6 +87,8 @@
       </div>
     </details>
     {% endif %}
+
+    <button class="btn-yellow" name="action" value="defend">🛡 Defend <span class="ability-desc">Half damage, no stuns, +8% MP</span></button>
 
     <button class="btn-dim" name="action" value="flee">↩ Flee</button>
   </form>

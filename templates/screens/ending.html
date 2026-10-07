@@ -1,0 +1,22 @@
+  {% set p = state.player %}
+  <div class="spacer"></div>
+  <div class="title-sub" style="color:var(--yellow);">✦ THE REALM IS SAVED ✦</div>
+  <div class="msgs">
+    <div class="msg msg-lore">The Chaos Dragon Lord crashes onto Dragon's Peak. Its fire gutters, then goes out.</div>
+    <div class="msg msg-lore">Across the Shattered Realm, the broken seals grow quiet. Farmers look up at a sky that is, for the first time in an age, simply blue.</div>
+    <div class="msg msg-lore">They will tell stories of {{ p.name }} the {{ p.profession or p.player_class }} for a thousand years — most of them exaggerated, none of them enough.</div>
+    {% if state.ng_plus %}<div class="msg msg-warning">New Game+ {{ state.ng_plus }} complete.</div>{% endif %}
+  </div>
+  <div class="stat-grid" style="margin-bottom:20px;">
+    <div class="stat-cell"><div class="stat-lbl">Level</div><div class="stat-val">{{ p.level }}</div></div>
+    <div class="stat-cell"><div class="stat-lbl">Kills</div><div class="stat-val">{{ p.kills }}</div></div>
+    <div class="stat-cell"><div class="stat-lbl">Quests</div><div class="stat-val">{{ p.quests_completed }}</div></div>
+    <div class="stat-cell"><div class="stat-lbl">Steps</div><div class="stat-val">{{ p.steps }}</div></div>
+    <div class="stat-cell"><div class="stat-lbl">Gold</div><div class="stat-val" style="color:var(--yellow);">{{ p.gold }}g</div></div>
+    <div class="stat-cell"><div class="stat-lbl">Cycle</div><div class="stat-val">{{ 'NG+' ~ state.ng_plus if state.ng_plus else 'First' }}</div></div>
+  </div>
+  <form method="post" action="/action">
+    <button class="btn-yellow btn-center" name="action" value="new_game_plus">✦ New Game+ {{ state.ng_plus + 1 }}
+      <span class="ability-desc">Keep your hero and gear. The seals reform; enemies grow {{ ((state.ng_plus + 1) * 25) }}% stronger, loot grows richer.</span></button>
+    <button class="btn-dim btn-center" name="action" value="continue">Return to the realm</button>
+  </form>

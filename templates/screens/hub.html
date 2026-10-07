@@ -27,13 +27,23 @@
       <div class="meta-badge">ATK: <span>{{ p.attack|int }}</span></div>
       <div class="meta-badge">DEF: <span>{{ p.defense|int }}</span></div>
       {% if p.trade_profession %}<div class="meta-badge">Trade: <span>{{ p.trade_profession }}</span></div>{% endif %}
-      {% if p.dot > 0 %}<div class="meta-badge" style="color:var(--purple)">POISONED</div>{% endif %}
+      {% if state.ng_plus %}<div class="meta-badge" style="color:var(--yellow)">NG+{{ state.ng_plus }}</div>{% endif %}
       {% for buff_name in p.buffs %}<div class="meta-badge" style="color:var(--green)">{{ buff_name }}({{ p.buffs[buff_name] }}t)</div>{% endfor %}
     </div>
   </div>
 
   {% if state.narrative_stage > 0 %}
-  <div class="seal-bar">✦ Seals Broken: {{ state.narrative_stage }}/5 {% if state.narrative_stage >= 5 %}— THE DRAGON AWAKENS{% endif %}</div>
+  <div class="seal-bar">✦ Seals Broken: {{ state.narrative_stage }}/5
+    {%- for z in range(1, 6) %} {{ '◆' if z in state.seals else '◇' }}{% endfor %}
+    {% if state.dragon_slain %}— THE REALM IS SAVED{% elif state.narrative_stage >= 5 %}— THE DRAGON AWAKENS{% endif %}</div>
+  {% endif %}
+
+  {% if final_ready %}
+  <form method="post" action="/action">
+    <button class="btn-red btn-center" name="action" value="final_battle">🔥 Confront the Chaos Dragon Lord</button>
+  </form>
+  {% elif state.narrative_stage >= 5 and not state.dragon_slain %}
+  <div class="msg msg-lore">The Chaos Dragon Lord waits on Dragon's Peak. Travel there to face it.</div>
   {% endif %}
 
   <p class="page-title">{{ zones[state.zone].name }}</p>

@@ -94,3 +94,45 @@ def test_failed_save_keeps_previous_save_intact(monkeypatch):
 
     assert open(path, 'rb').read() == good
     assert os.listdir(game_app.SAVE_DIR) == [f'{sid}.pkl']  # no leftover .tmp file
+
+
+def test_endgame_flow_through_the_web_ui(monkeypatch):
+    """Five seals → confront the Dragon Lord → fight via the real forms → ending → NG+."""
+    import pickle
+    sys_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'tools')
+    import sys
+    sys.path.insert(0, sys_path)
+    import balance_sim
+    from quests import QuestLog
+
+    client = game_app.app.test_client()
+    client.get('/')
+    with client.session_transaction() as s:
+        sid = s['sid']
+    st = game_app.fresh_state()
+    hero = balance_sim.build_player('Warrior', 19, rarity='Legendary', potions=10)
+    st.update(player=hero, quest_log=QuestLog(), zone=5, screen='hub', seals={1, 2, 3, 4, 5},
+              narrative_stage=5)
+    with open(os.path.join(game_app.SAVE_DIR, f'{sid}.pkl'), 'wb') as f:
+        pickle.dump(st, f)
+
+    page = client.get('/').get_data(as_text=True)
+    assert 'Confront the Chaos Dragon Lord' in page
+    page = client.post('/action', data={'action': 'final_battle'}, follow_redirects=True).get_data(as_text=True)
+    assert 'Chaos Dragon Lord' in page and 'Defend' in page
+
+    random.seed(3)
+    for _ in range(80):
+        if 'THE REALM IS SAVED' in page:
+            break
+        assert 'GAME OVER' not in page, 'a Legendary level-19 Warrior should win this'
+        with open(os.path.join(game_app.SAVE_DIR, f'{sid}.pkl'), 'rb') as f:
+            cur = pickle.load(f)
+        kind, ab, item = balance_sim.choose_action(cur['player'], cur['combat_enemy'], 0)
+        action = {'ability': f'ability_{ab}', 'item': f'item_{item}'}.get(kind, kind)
+        page = client.post('/action', data={'action': action}, follow_redirects=True).get_data(as_text=True)
+    assert 'THE REALM IS SAVED' in page
+    assert 'New Game+ 1' in page
+
+    page = client.post('/action', data={'action': 'new_game_plus'}, follow_redirects=True).get_data(as_text=True)
+    assert 'NG+1' in page and 'Confront the Chaos Dragon Lord' not in page

@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Chronicles of the Shattered Realm** — a text-based RPG played in the browser (mobile-first).
 
 - **Web** (`app.py`): Flask server, state persisted as pickled dicts in `<SAVE_DIR>/<uuid>.pkl` across HTTP requests. `SAVE_DIR` defaults to `instance/saves/` (gitignored) and can be overridden with the `RPG_SAVE_DIR` env var — point it at a persistent volume in production. Saves are written to a temp file and renamed into place, so a crash mid-write can't corrupt one.
-- Game logic lives in `player.py`, `enemies.py`, `items.py`, `quests.py`, `abilities.py`, `world.py`, `crafting.py`. Combat is a step-wise state machine (`do_combat_turn` in `app.py`).
+- Game logic lives in `player.py`, `enemies.py`, `items.py`, `quests.py`, `abilities.py`, `world.py`, `crafting.py`. Combat is a step-wise state machine: `do_combat_turn` in `combat.py`, one call per round.
 
 The old terminal (CLI) version was removed; there is only one interface.
 
@@ -20,6 +20,9 @@ pip install -r requirements-dev.txt
 # Run tests
 python -m pytest -q tests
 
+# Balance report: a scripted bot fights every zone/boss/class combination
+python tools/balance_sim.py --fights 80
+
 # Run the web server (development)
 python app.py
 
@@ -27,7 +30,7 @@ python app.py
 waitress-serve app:app
 ```
 
-Tests live in `tests/` (pytest). `test_combat_effects.py` asserts that every buff ability and every profession passive actually changes combat — add a test there when adding an ability or profession (`test_every_profession_is_covered` fails until you do). `test_web.py` clicks random buttons through the whole app and fails on any 500. There is no linter configuration.
+Tests live in `tests/` (pytest). `test_combat_effects.py` asserts that every buff ability and every profession passive actually changes combat — add a test there when adding an ability or profession (`test_every_profession_is_covered` fails until you do). `test_enemies_and_story.py` does the same for every enemy ability, status effect, boss phase and the seals → final boss → ending → NG+ flow, and includes balance regression checks (final boss winnable, regular fights not one-shots) that run the simulator. `test_web.py` clicks random buttons through the whole app, fails on any 500, and plays the endgame through the real forms. There is no linter configuration.
 
 ## Architecture
 
@@ -43,9 +46,10 @@ title → char_name → char_class → trade_prof_choice → hub
 hub → combat → combat_result → hub
 hub → shop / inn / quest_board / world_map / inventory / skills / abilities / gather / craft
 hub → profession_choice (triggered at level 5) → hub
+hub (zone 5, all five seals) → combat vs Chaos Dragon Lord → ending → hub (New Game+ or keep playing)
 ```
 
-State dict keys: `screen`, `player` (Player object), `quest_log` (QuestLog object), `zone` (int 1–5), `messages` (list of `{kind, text}` dicts), `combat_enemy`, `combat_turn`, `combat_log`, `shop_stock`, `board_quests`, `narrative_stage`, `triggered_events` (set of fired one-time event IDs), `craft_skill`.
+State dict keys: `screen`, `player` (Player object), `quest_log` (QuestLog object), `zone` (int 1–5), `messages` (list of `{kind, text}` dicts), `combat_enemy`, `combat_turn`, `combat_log`, `shop_stock`, `board_quests`, `narrative_stage` (== `len(seals)`), `seals` (set of zone ids whose boss is dead), `dragon_slain`, `ng_plus` (New Game+ cycle, 0 = first run), `triggered_events` (set of fired one-time event IDs), `craft_skill`. `migrate_state()` fills in keys missing from older saves — add new keys to `fresh_state()` and they migrate automatically.
 
 ### Player Stats (`player.py`)
 
@@ -87,17 +91,30 @@ Players have two skill dictionaries: `gathering_skills` and `crafting_skills`, e
 
 ### Abilities (`abilities.py`)
 
-Six abilities per class, unlocked by `level_req`. `Ability.calculate_effect(user_stats)` applies stat scaling (INT/4 + STR/6 for damage, INT/3 for heals). Profession multipliers (e.g. Sorcerer +30% damage, Trickster +2 poison turns) are applied inline inside `do_combat_turn` in `app.py`.
+Six abilities per class, unlocked by `level_req`. Damage abilities deal `mult × Player.ability_power` (ATK for Warriors/Rogues, `spell_power` = INT × `SPELL_INT_MULT` + weapon ATK for Mages); `status`/`status_chance` apply an enemy status on hit (Shield Bash → Stunned, Ice Lance → Chilled, Fireball → Burning). Profession multipliers (e.g. Sorcerer +30% damage, Trickster +2 poison turns) are applied inline in `combat.py`.
 
-Buff abilities put `{name: turns}` into `player.buffs`, which `tick_buffs()` counts down each turn. A buff only does something if code checks for its name: `Berserk` and `Battle Cry` in `Player.attack`/`defense`, `Evasion` and `Mana Shield` in `hit_player()` (`app.py`), which all enemy damage goes through. Shield Bash stuns with `SHIELD_BASH_STUN_CHANCE`.
+Buff abilities put `{name: turns}` into `player.buffs`, which `tick_buffs()` counts down each turn. A buff only does something if code checks for its name: `Berserk` and `Battle Cry` in `Player.attack`/`defense`, `Evasion` and `Mana Shield` in `hit_player()` (`combat.py`), which all enemy damage goes through.
+
+### Combat (`combat.py`, `enemies.py`)
+
+One `do_combat_turn` call = player acts (attack / ability / item / **defend** / flee) → enemy DoT ticks → enemy acts → statuses tick. Defense is a **percentage** reduction: `mitigate(dmg, def) = dmg × 100 / (100 + def)` — never flat subtraction (that made early bosses harmless and late bosses unkillable).
+
+- **Enemy abilities** are data: `ENEMY_ABILITIES` in `enemies.py` maps every ability name to a spec (`kind` ∈ hit, drain, dot, stun, weaken, enrage, shield, evade; plus `mult`, `hits`, `status`, `turns`, `chance`, `charge`). `test_every_enemy_ability_does_something` fails if a new enemy ability has no effect. Enemies use an ability 30% of turns (bosses 40%, phase 2 55%).
+- **Telegraphs**: specs with `charge: True` spend a turn charging (`enemy.charging`) and fire next turn. Players counter by Defending (half damage, no stuns), dodging (Evasion) or stunning the enemy, which interrupts the charge.
+- **Player debuffs** live in `player.debuffs` as `{name: {turns, dmg}}`: Poisoned/Burning/Bleeding (DoTs that ignore defense), Weakened (ATK -25%), Stunned (skips the next action, then grants 2 turns of `Steadfast` stun immunity). Antidotes (`cure`) clear them. `end_combat()` clears debuffs whenever a fight ends.
+- **Enemy statuses** live in `enemy.statuses` as `{name: turns}`: Chilled, Enraged, Shielded, Evading. Bosses enter **phase 2** below 50% HP (+15% ATK, more abilities, `phase2` flavour text).
+
+### Balance (`tools/balance_sim.py`)
+
+All scaling constants are named knobs at the top of their module: `MOB_HP_MULT`, `MOB_*_GROWTH`, `BOSS_*_GROWTH`, `NG_PLUS_POWER`, `DEF_K` (`enemies.py`), `SPELL_INT_MULT` and `CLASS_GROWTH` (`player.py`). Change them, then run the simulator — it plays each class against every zone's mobs and bosses and the final boss and prints win rate, turns and HP left. The bot is a reasonable player, not an optimal one. Targets used so far: regular fights 2–4 turns ending at 60–90% HP; zone bosses ~70–100% at zone level + 2 with 3 potions; final boss ≥40% for every class with Epic gear. The level cap is 19 (`len(XP_TABLE) - 1`).
 
 ### Zones and Level Requirements (`world.py`)
 
-Five zones (ids 1–5) with `ZONE_LEVEL_REQ = {1:1, 2:5, 3:10, 4:15, 5:18}`. Zone 5 contains the final boss (Chaos Dragon Lord) and completes the Five Seals narrative arc tracked via `state['narrative_stage']` (incremented each time the player defeats a zone boss).
+Five zones (ids 1–5) with `ZONE_LEVEL_REQ = {1:1, 2:5, 3:10, 4:15, 5:18}`. Each zone has one boss in `BOSS_TEMPLATES` (Goblin King, Undead Warlord, Arcane Lich King, Shadow Sovereign, Ignaroth the Elder Wyrm); killing it the first time breaks that zone's seal (`state['seals']`), in any order. With all five broken, the hub in zone 5 offers the final battle against `FINAL_BOSS` (Chaos Dragon Lord, `spawn_final_boss`). Winning shows the `ending` screen, which offers **New Game+**: keep the character and gear, reset seals and named events, and every enemy gets `× (1 + NG_PLUS_POWER × cycle)` stats plus better loot luck.
 
 ## Key Conventions
 
 - **Adding a new screen** in the web app requires: a new `elif screen == 'new_screen':` block in the `/action` route, a `templates/screens/new_screen.html` file (`test_every_screen_has_a_template` fails without it), and any new state keys initialized in `fresh_state()`.
-- **Profession passives** are applied inline via `if player.profession == 'X':` guards in `do_combat_turn` (`app.py`) and the `Player` stat properties. Adding a new profession requires updating those guards, `PROFESSIONS` in `player.py`, the template, and a test in `tests/test_combat_effects.py`.
-- **Session state** is pickled Python objects. Any new attribute added to `Player` must be backward-compatible with existing pickle files or `fresh_state()` must be called on load failure (already handled by `get_state()` returning `None` on exception).
+- **Profession passives** are applied inline via `if player.profession == 'X':` guards in `combat.py` and the `Player` stat properties. Adding a new profession requires updating those guards, `PROFESSIONS` in `player.py`, the template, and a test in `tests/test_combat_effects.py`.
+- **Session state** is pickled Python objects. New `Player`/`Enemy` attributes must get a default in that class's `__setstate__` so older saves still load; new state-dict keys go in `fresh_state()` (picked up by `migrate_state()`).
 - The `SECRET_KEY` for Flask sessions should be set via the `SECRET_KEY` environment variable in production; without it a random per-process key is used, so sessions reset on every restart. The session `sid` is validated as a canonical UUID before it is used as a save filename.

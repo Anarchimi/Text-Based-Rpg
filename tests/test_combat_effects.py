@@ -77,7 +77,8 @@ def test_mana_shield_without_mp_absorbs_nothing():
 def test_shield_bash_can_stun(monkeypatch):
     p = make_player('Warrior')
     e = make_enemy()
-    monkeypatch.setattr(game_app, 'SHIELD_BASH_STUN_CHANCE', 1.0)
+    bash = next(a for a in p.get_abilities() if a.name == 'Shield Bash')
+    monkeypatch.setattr(bash, 'status_chance', 1.0)
     st = combat_state(p, e)
     random.seed(0)
     idx = ability_index(p, 'Shield Bash')

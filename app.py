@@ -9,7 +9,8 @@ from flask import Flask, session, request, redirect, url_for, render_template
 from flask_compress import Compress
 
 from player import Player, PROFESSIONS
-from enemies import spawn_enemy
+from enemies import spawn_enemy, spawn_final_boss
+from combat import do_combat_turn, end_combat, hit_player  # noqa: F401  (hit_player re-exported for tests)
 from quests import QuestLog, generate_quest
 from items import generate_shop_stock, generate_weapon, generate_armor, generate_consumable
 from world import explore_step, travel_to_zone, ZONES, ZONE_LEVEL_REQ, get_zone
@@ -47,12 +48,13 @@ os.makedirs(SAVE_DIR, exist_ok=True)
 
 _PICKLE_PROTOCOL = pickle.HIGHEST_PROTOCOL
 
+# Keyed by how many seals are broken (not which zone), so any order reads right.
 SEAL_MESSAGES = {
     1: "✦ The FIRST SEAL cracks. A darkness stirs beyond the horizon...",
     2: "✦ The SECOND SEAL shatters. Ancient powers begin to wake...",
     3: "✦ The THIRD SEAL breaks. The veil between worlds grows thin...",
     4: "✦ The FOURTH SEAL collapses. Reality itself begins to fracture...",
-    5: "✦ THE FINAL SEAL IS BROKEN! The Chaos Dragon Lord awakens! You are the realm's last hope!",
+    5: "✦ THE FINAL SEAL IS BROKEN! The Chaos Dragon Lord awakens on Dragon's Peak. Go — end this.",
 }
 
 ENEMY_SPRITES = {
@@ -74,6 +76,8 @@ ENEMY_SPRITES = {
     "Goblin King":      "👑",
     "Undead Warlord":   "☠️",
     "Arcane Lich King": "🧿",
+    "Shadow Sovereign": "🌑",
+    "Ignaroth the Elder Wyrm": "🐉",
     "Chaos Dragon Lord":"🔥",
 }
 
@@ -94,9 +98,19 @@ def get_state():
         return None
     try:
         with open(f'{SAVE_DIR}/{sid}.pkl', 'rb') as f:
-            return pickle.load(f)
+            return migrate_state(pickle.load(f))
     except Exception:
         return None
+
+
+def migrate_state(state):
+    """Fill in state keys added after a save was written."""
+    if 'seals' not in state:
+        # Old saves only stored a count; assume the earliest zones' seals were broken.
+        state['seals'] = set(range(1, state.get('narrative_stage', 0) + 1))
+    for key, default in fresh_state().items():
+        state.setdefault(key, default)
+    return state
 
 
 def save_state(state):
@@ -132,7 +146,10 @@ def fresh_state():
         'combat_log': [],
         'shop_stock': None,
         'board_quests': None,
-        'narrative_stage': 0,
+        'narrative_stage': 0,     # == len(seals); kept for the hub seal bar
+        'seals': set(),           # zone ids whose boss has been defeated
+        'dragon_slain': False,
+        'ng_plus': 0,
         'triggered_events': set(),
         'craft_skill': 'Smithing',
     }
@@ -155,195 +172,24 @@ def check_profession_unlock(state, player, fallback_screen):
     return False
 
 
-# ── Combat logic ──────────────────────────────────────────────────────────────
-
-SHIELD_BASH_STUN_CHANCE = 0.35
-
-
-def hit_player(player, dmg, clog):
-    """Apply incoming enemy damage after Evasion / Mana Shield. Returns HP lost."""
-    if 'Evasion' in player.buffs:
-        del player.buffs['Evasion']
-        clog('buff', 'You evade the attack!')
-        return 0
-    if 'Mana Shield' in player.buffs:
-        absorbed = min(player.mp, dmg // 2)
-        if absorbed:
-            player.mp -= absorbed
-            dmg -= absorbed
-            clog('buff', f'Mana Shield absorbs {absorbed} damage!')
-    player.hp = max(0, player.hp - dmg)
-    return dmg
+def final_battle_available(state):
+    return (len(state.get('seals', ())) >= 5 and not state.get('dragon_slain')
+            and state['zone'] == 5)
 
 
-def do_combat_turn(state, action, ability_idx=None, item_idx=None):
+def start_new_game_plus(state):
+    """Keep the character and gear; restart the story with tougher enemies."""
     player = state['player']
-    enemy  = state['combat_enemy']
-    log    = state['combat_log']
-
-    def clog(kind, text):
-        log.append({'kind': kind, 'text': text})
-
-    if action == 'attack':
-        bonus = random.randint(-2, 4)
-        crit  = random.random() < (0.05 + player.dex / 200)
-        dmg   = int((player.attack + bonus) * (1.8 if crit else 1.0))
-
-        # Ranger first-strike passive
-        if player.profession == 'Ranger' and not player.first_strike_used:
-            dmg = int(dmg * 1.2)
-            player.first_strike_used = True
-            clog('buff', 'Ranger first-strike bonus! +20% ATK')
-
-        # Berserker passive
-        if player.profession == 'Berserker' and player.hp < player.max_hp * 0.3:
-            dmg = int(dmg * 1.5)
-            clog('buff', 'BERSERK RAGE! +50% ATK!')
-
-        actual = enemy.take_damage(dmg)
-        if crit:
-            clog('crit', '★ CRITICAL HIT!')
-        clog('player', f'{player.name} attacks for {actual} damage.')
-
-    elif action == 'ability' and ability_idx is not None:
-        abilities = player.get_abilities()
-        if 0 <= ability_idx < len(abilities):
-            picked = abilities[ability_idx]
-            if player.mp < picked.mp_cost:
-                clog('danger', 'Not enough MP!')
-                return 'continue'
-            player.mp -= picked.mp_cost
-            stats = {'str': int(player.str), 'dex': int(player.dex), 'int': int(player.int)}
-            effect = picked.calculate_effect(stats)
-            if picked.ability_type == 'damage':
-                crit = random.random() < 0.12
-                dmg  = int(effect * (1.5 if crit else 1.0))
-
-                # Sorcerer passive
-                if player.profession == 'Sorcerer':
-                    dmg = int(dmg * 1.3)
-
-                # Necromancer passive
-                if player.profession == 'Necromancer' and enemy.hp < enemy.max_hp * 0.5:
-                    dmg = int(dmg * 1.2)
-
-                # Berserker passive
-                if player.profession == 'Berserker' and player.hp < player.max_hp * 0.3:
-                    dmg = int(dmg * 1.5)
-                    clog('buff', 'BERSERK RAGE! +50% ATK!')
-
-                if picked.name == 'Execute' and enemy.hp < enemy.max_hp * 0.30:
-                    dmg = int(dmg * 2)
-                    clog('crit', 'EXECUTE! 2× DAMAGE!')
-                if picked.name == 'Death Mark':
-                    mult = 3
-                    if player.profession == 'Assassin':
-                        mult = 5 if enemy.hp < enemy.max_hp * 0.40 else 4
-                    dmg = int(dmg * mult)
-                    clog('crit', f'DEATH MARK! {mult}× DAMAGE!')
-
-                actual = enemy.take_damage(dmg)
-                if crit:
-                    clog('crit', '★ CRITICAL!')
-                clog('player', f'{picked.name}: {actual} damage!')
-
-                if picked.name == 'Shield Bash' and random.random() < SHIELD_BASH_STUN_CHANCE:
-                    enemy.stunned = True
-                    clog('stun', f'{enemy.name} is stunned next turn!')
-
-                # Elementalist Burn passive
-                if player.profession == 'Elementalist' and random.random() < 0.30:
-                    enemy.dot = max(enemy.dot, 4)
-                    enemy.dot_dmg = max(enemy.dot_dmg, 5)
-                    clog('poison', 'BURN applied! Enemy is on fire!')
-
-            elif picked.ability_type == 'heal':
-                healed = min(effect, player.max_hp - player.hp)
-                player.hp += healed
-                clog('heal', f'{picked.name}: Restored {healed} HP!')
-            elif picked.ability_type == 'buff':
-                player.buffs[picked.name] = 3
-                clog('buff', f'{picked.name} activated for 3 turns!')
-            elif picked.ability_type == 'dot':
-                turns = 3
-                if player.profession == 'Trickster':
-                    turns = 5  # +2 extra turns
-                enemy.dot = turns
-                dot_dmg = effect
-                if player.profession == 'Trickster':
-                    dot_dmg = int(dot_dmg * 1.5)
-                enemy.dot_dmg = dot_dmg
-                clog('poison', f'Poisoned {enemy.name} for {dot_dmg} dmg/turn x{turns} turns!')
-            elif picked.ability_type == 'debuff':
-                enemy.stunned = True
-                clog('stun', f'{enemy.name} is stunned next turn!')
-
-    elif action == 'item' and item_idx is not None:
-        consumables = [i for i in player.inventory if i.item_type == 'consumable']
-        if 0 <= item_idx < len(consumables):
-            ok, text = player.use_consumable(consumables[item_idx])
-            clog('heal' if ok else 'danger', text)
-
-    elif action == 'flee':
-        if player.profession == 'Ranger':
-            clog('warning', 'Ranger instincts guide you to safety!')
-            return 'fled'
-        flee_chance = 30 + int(player.dex) + int(player.speed * 1.5)
-        if random.randint(1, 100) < flee_chance - enemy.atk:
-            clog('warning', 'You fled from the battle!')
-            return 'fled'
-        clog('danger', "Couldn't flee! The enemy blocks your escape!")
-
-    if not enemy.is_alive():
-        return 'victory'
-
-    dot_dmg = enemy.tick_dot()
-    if dot_dmg:
-        clog('poison', f'Poison deals {dot_dmg} to {enemy.name}. ({enemy.hp} HP left)')
-        if not enemy.is_alive():
-            return 'victory'
-
-    use_ability = random.random() < 0.3 and enemy.abilities
-    if use_ability:
-        ability_name, bonus = enemy.use_ability()
-        if enemy.stunned:
-            clog('warning', f'{enemy.name} is stunned and cannot act!')
-            enemy.stunned = False
-        else:
-            sdmg = max(1, int(enemy.atk * 1.3 + bonus) - player.defense)
-            clog('enemy', f'{enemy.name} uses {ability_name}!')
-            lost = hit_player(player, sdmg, clog)
-            if lost:
-                clog('enemy', f'-{lost} HP')
-    else:
-        if enemy.stunned:
-            clog('warning', f'{enemy.name} is stunned and misses!')
-            enemy.stunned = False
-        else:
-            dmg, was_stunned = enemy.attack_player(player.defense)
-            if was_stunned:
-                clog('warning', f'{enemy.name} was stunned and missed!')
-            else:
-                lost = hit_player(player, dmg, clog)
-                if lost:
-                    clog('enemy', f'{enemy.name} attacks: -{lost} HP')
-
-    expired = player.tick_buffs()
-    if player.dot > 0:
-        clog('danger', f'You are poisoned! -{player.dot_dmg} HP')
-    for b in expired:
-        if not b.endswith('_buff'):
-            clog('warning', f'{b} wore off.')
-
-    if player.hp <= 0:
-        if player.has_revive():
-            clog('warning', 'Defeated... but a Phoenix Feather saves you!')
-            player.consume_revive()
-            return 'revived'
-        return 'defeat'
-
-    state['combat_turn'] += 1
-    return 'continue'
+    state['ng_plus'] = state.get('ng_plus', 0) + 1
+    state['seals'] = set()
+    state['narrative_stage'] = 0
+    state['dragon_slain'] = False
+    state['triggered_events'] = set()
+    state['zone'] = 1
+    player.hp, player.mp = player.max_hp, player.max_mp
+    state['screen'] = 'hub'
+    add_msg(state, 'lore', f"NEW GAME+ {state['ng_plus']}: The seals reform. The realm remembers your name — "
+                           f"and so does the darkness. Enemies are stronger; their treasure richer.")
 
 
 def finish_combat_victory(state):
@@ -352,7 +198,8 @@ def finish_combat_victory(state):
     quest_log = state['quest_log']
     log       = state['combat_log']
 
-    items, gold = enemy.loot_drop(player.level, int(player.lck))
+    end_combat(player)
+    items, gold = enemy.loot_drop(player.level, int(player.lck) + 5 * state.get('ng_plus', 0))
     player.gold += gold
     player.kills += 1
     player.first_strike_used = False  # reset Ranger passive
@@ -372,11 +219,11 @@ def finish_combat_victory(state):
         log.append({'kind': 'levelup', 'text': f'★ LEVEL UP! Now Level {lvl}! +2 Skill Points'})
 
     # Narrative arc — Five Seals
-    if enemy.is_boss and state['zone'] > state.get('narrative_stage', 0):
-        state['narrative_stage'] = state['zone']
-        seal_msg = SEAL_MESSAGES.get(state['zone'], '')
-        if seal_msg:
-            log.append({'kind': 'lore', 'text': seal_msg})
+    seals = state.setdefault('seals', set())
+    if enemy.seal and enemy.seal not in seals:
+        seals.add(enemy.seal)
+        state['narrative_stage'] = len(seals)
+        log.append({'kind': 'lore', 'text': SEAL_MESSAGES[len(seals)]})
 
     quest_log.check_event('explore', get_zone(state['zone'])['name'])
     for q in list(quest_log.active_quests()):
@@ -389,6 +236,10 @@ def finish_combat_victory(state):
 
     state['combat_enemy'] = None
 
+    if enemy.is_final:
+        state['dragon_slain'] = True
+        state['screen'] = 'ending'
+        return
     if check_profession_unlock(state, player, 'combat_result'):
         return
     state['screen'] = 'combat_result'
@@ -412,7 +263,8 @@ def index():
                            gather_button_labels=GATHER_BUTTON_LABELS,
                            gathering_skills=GATHERING_SKILLS,
                            crafting_skills_list=CRAFTING_SKILLS,
-                           enemy_sprites=ENEMY_SPRITES)
+                           enemy_sprites=ENEMY_SPRITES,
+                           final_ready=bool(state.get('player')) and final_battle_available(state))
 
 
 @app.route('/action', methods=['POST'])
@@ -532,7 +384,8 @@ def action():
                 elif ev_type == 'encounter':
                     force_boss = ev_msg.startswith('💀')
                     add_msg(state, 'warning', ev_msg)
-                    enemy = spawn_enemy(zone=state['zone'], level=player.level, force_boss=force_boss)
+                    enemy = spawn_enemy(zone=state['zone'], level=player.level, force_boss=force_boss,
+                                        ng=state.get('ng_plus', 0))
                     enemy_name_for_log = f"A {enemy.name}" if not enemy.is_boss else f"BOSS: {enemy.name}"
                     state['combat_enemy'] = enemy
                     state['combat_turn']  = 1
@@ -552,6 +405,14 @@ def action():
                         player.quests_completed += 1
                         add_msg(state, 'quest', f'Quest complete: {q.title}! +{q.reward_gold}g +{q.reward_xp} XP')
                 check_profession_unlock(state, player, 'hub')
+
+        elif act == 'final_battle' and final_battle_available(state):
+            enemy = spawn_final_boss(player.level, ng=state.get('ng_plus', 0))
+            state['combat_enemy'] = enemy
+            state['combat_turn']  = 1
+            state['combat_log']   = [{'kind': 'lore', 'text': "The sky splits open. The Chaos Dragon Lord descends upon Dragon's Peak!"}]
+            player.first_strike_used = False
+            state['screen'] = 'combat'
 
         elif act == 'shop':
             state['shop_stock'] = generate_shop_stock(player.level)
@@ -599,13 +460,16 @@ def action():
         if result == 'victory':
             finish_combat_victory(state)
         elif result == 'defeat':
+            end_combat(state['player'])
             state['screen'] = 'game_over'
             state['combat_enemy'] = None
         elif result == 'fled':
+            end_combat(state['player'])
             state['combat_enemy'] = None
             state['screen'] = 'hub'
             add_msg(state, 'warning', 'You fled from the battle!')
         elif result == 'revived':
+            end_combat(state['player'])
             state['combat_enemy'] = None
             state['screen'] = 'hub'
             add_msg(state, 'warning', 'You were revived by a Phoenix Feather!')
@@ -789,6 +653,12 @@ def action():
                 ok, text, _ = craft_item(player, skill_name, recipe_idx,
                                           player_class=player.player_class)
                 add_msg(state, 'success' if ok else 'danger', text)
+
+    elif screen == 'ending':
+        if act == 'new_game_plus':
+            start_new_game_plus(state)
+        elif act == 'continue':
+            state['screen'] = 'hub'
 
     elif screen == 'game_over':
         if act == 'restart':

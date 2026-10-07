@@ -1,0 +1,335 @@
+"""Turn-based combat engine used by the web app.
+
+One call to do_combat_turn() is one round: the player acts, then the enemy acts,
+then statuses tick. It returns 'continue', 'victory', 'defeat', 'fled' or 'revived'.
+"""
+import random
+
+from enemies import ability_spec, mitigate
+
+ENEMY_ABILITY_CHANCE = 0.30
+BOSS_ABILITY_CHANCE = 0.40
+PHASE2_ABILITY_CHANCE = 0.55
+DEFEND_MP_REGEN = 0.08        # Defend restores this fraction of max MP
+STUN_IMMUNITY_TURNS = 2       # after being stunned, the player can't be stunned again for a bit
+SHADOW_STEP_CRIT_BONUS = 0.25
+
+
+def hit_player(player, dmg, clog, defending=False):
+    """Apply incoming enemy damage after Evasion / Defend / Mana Shield. Returns HP lost."""
+    if 'Evasion' in player.buffs:
+        del player.buffs['Evasion']
+        clog('buff', 'You evade the attack!')
+        return 0
+    if defending:
+        dmg = max(1, dmg // 2)
+    if 'Mana Shield' in player.buffs:
+        absorbed = min(player.mp, dmg // 2)
+        if absorbed:
+            player.mp -= absorbed
+            dmg -= absorbed
+            clog('buff', f'Mana Shield absorbs {absorbed} damage!')
+    player.hp = max(0, player.hp - dmg)
+    return dmg
+
+
+def end_combat(player):
+    """Debuffs only exist inside a fight."""
+    player.debuffs.clear()
+    player.buffs.pop('Steadfast', None)
+
+
+# ── Player side ────────────────────────────────────────────────────────────────
+
+def _strike(enemy, dmg, clog):
+    """Deal player damage to the enemy. Returns damage dealt, or None if dodged."""
+    if 'Evading' in enemy.statuses:
+        del enemy.statuses['Evading']
+        clog('warning', f'{enemy.name} dodges your attack!')
+        return None
+    return enemy.take_damage(dmg)
+
+
+def _apply_enemy_status(enemy, status, power, clog):
+    if status == 'Stunned':
+        enemy.stunned = True
+        clog('stun', f'{enemy.name} is stunned next turn!')
+    elif status == 'Burning':
+        enemy.dot = max(enemy.dot, 3)
+        enemy.dot_dmg = max(enemy.dot_dmg, max(1, int(power * 0.25)))
+        enemy.dot_name = 'Burn'
+        clog('poison', f'{enemy.name} is burning! ({enemy.dot_dmg} dmg/turn)')
+    elif status == 'Chilled':
+        enemy.statuses['Chilled'] = 3
+        clog('stun', f'{enemy.name} is chilled! (ATK -25%)')
+
+
+def _player_attack(player, enemy, clog):
+    bonus = random.randint(-2, 4)
+    crit = random.random() < (0.05 + player.dex / 200)
+    dmg = int((player.attack + bonus) * (1.8 if crit else 1.0))
+
+    if player.profession == 'Ranger' and not player.first_strike_used:
+        dmg = int(dmg * 1.2)
+        player.first_strike_used = True
+        clog('buff', 'Ranger first-strike bonus! +20% ATK')
+    if player.profession == 'Berserker' and player.hp < player.max_hp * 0.3:
+        dmg = int(dmg * 1.5)
+        clog('buff', 'BERSERK RAGE! +50% ATK!')
+
+    actual = _strike(enemy, dmg, clog)
+    if actual is None:
+        return
+    if crit:
+        clog('crit', '★ CRITICAL HIT!')
+    clog('player', f'{player.name} attacks for {actual} damage.')
+
+
+def _player_ability(player, enemy, picked, clog):
+    if player.mp < picked.mp_cost:
+        clog('danger', 'Not enough MP!')
+        return False
+    player.mp -= picked.mp_cost
+    power = player.ability_power
+    effect = picked.calculate_effect(power)
+
+    if picked.ability_type == 'damage':
+        crit_chance = 0.12 + (SHADOW_STEP_CRIT_BONUS if picked.name == 'Shadow Step' else 0)
+        crit = random.random() < crit_chance
+        dmg = int(effect * (1.5 if crit else 1.0))
+
+        if player.profession == 'Sorcerer':
+            dmg = int(dmg * 1.3)
+        if player.profession == 'Necromancer' and enemy.hp < enemy.max_hp * 0.5:
+            dmg = int(dmg * 1.2)
+        if player.profession == 'Berserker' and player.hp < player.max_hp * 0.3:
+            dmg = int(dmg * 1.5)
+            clog('buff', 'BERSERK RAGE! +50% ATK!')
+
+        if picked.name == 'Execute' and enemy.hp < enemy.max_hp * 0.30:
+            dmg = int(dmg * 2)
+            clog('crit', 'EXECUTE! 2× DAMAGE!')
+        if picked.name == 'Death Mark':
+            mult = 3
+            if player.profession == 'Assassin':
+                mult = 5 if enemy.hp < enemy.max_hp * 0.40 else 4
+            dmg = int(dmg * mult)
+            clog('crit', f'DEATH MARK! {mult}× DAMAGE!')
+
+        actual = _strike(enemy, dmg, clog)
+        if actual is None:
+            return True
+        if crit:
+            clog('crit', '★ CRITICAL!')
+        clog('player', f'{picked.name}: {actual} damage!')
+
+        if picked.status and random.random() < picked.status_chance:
+            _apply_enemy_status(enemy, picked.status, power, clog)
+        if player.profession == 'Elementalist' and random.random() < 0.30:
+            _apply_enemy_status(enemy, 'Burning', power, clog)
+
+    elif picked.ability_type == 'heal':
+        healed = min(effect, player.max_hp - player.hp)
+        player.hp += healed
+        clog('heal', f'{picked.name}: Restored {healed} HP!')
+    elif picked.ability_type == 'buff':
+        player.buffs[picked.name] = 3
+        clog('buff', f'{picked.name} activated for 3 turns!')
+    elif picked.ability_type == 'dot':
+        turns, dot_dmg = 3, effect
+        if player.profession == 'Trickster':
+            turns, dot_dmg = 5, int(dot_dmg * 1.5)
+        enemy.dot = turns
+        enemy.dot_dmg = dot_dmg
+        enemy.dot_name = 'Poison'
+        clog('poison', f'Poisoned {enemy.name} for {dot_dmg} dmg/turn x{turns} turns!')
+    elif picked.ability_type == 'debuff':
+        enemy.stunned = True
+        clog('stun', f'{enemy.name} is blinded and will lose its next turn!')
+    return True
+
+
+# ── Enemy side ─────────────────────────────────────────────────────────────────
+
+def _enemy_hit(player, enemy, mult, clog, defending):
+    raw = enemy.effective_atk * mult * random.uniform(0.9, 1.1)
+    return hit_player(player, mitigate(raw, player.defense), clog, defending)
+
+
+def _enemy_ability(player, enemy, name, spec, clog, defending):
+    kind = spec['kind']
+    text = spec.get('text')
+    turns = spec.get('turns', 2)
+
+    if kind == 'enrage':
+        enemy.statuses['Enraged'] = 99
+        clog('enemy', f'{enemy.name} {text or "becomes enraged"}! (ATK +30%)')
+        return
+    if kind == 'shield':
+        enemy.statuses['Shielded'] = turns + 1
+        clog('enemy', f'{enemy.name} {text or "raises a shield"}! (takes half damage)')
+        return
+    if kind == 'evade':
+        enemy.statuses['Evading'] = 3
+        clog('enemy', f'{enemy.name} {text or "gets ready to dodge"}! (will dodge your next attack)')
+        return
+
+    clog('enemy', f'{enemy.name} {text}!' if text else f'{enemy.name} uses {name}!')
+    total, dodged = 0, False
+    mult = spec.get('mult', 1.3)
+    if mult > 0:
+        for _ in range(spec.get('hits', 1)):
+            lost = _enemy_hit(player, enemy, mult, clog, defending)
+            dodged = dodged or lost == 0
+            total += lost
+        if total:
+            clog('enemy', f'-{total} HP')
+    if dodged and spec.get('hits', 1) == 1:
+        return  # a dodged single hit lands no rider effect
+
+    if kind == 'drain' and total:
+        healed = min(total // 2, enemy.max_hp - enemy.hp)
+        enemy.hp += healed
+        if healed:
+            clog('enemy', f'{enemy.name} drains {healed} HP from you!')
+    elif kind == 'dot':
+        status = spec['status']
+        tick = max(1, int(enemy.effective_atk * spec.get('dot', 0.25)))
+        player.add_debuff(status, turns + 1, tick)
+        clog('danger', f'You are {status.lower()}! ({tick} dmg/turn for {turns} turns)')
+    elif kind == 'weaken':
+        player.add_debuff('Weakened', turns + 1)
+        clog('danger', f'You are weakened! (ATK -25% for {turns} turns)')
+    elif kind == 'stun':
+        if defending:
+            clog('buff', 'You brace yourself and keep your footing.')
+        elif 'Steadfast' in player.buffs:
+            clog('buff', 'You shrug off the stun.')
+        elif random.random() < spec.get('chance', 0.3):
+            player.debuffs['Stunned'] = {'turns': 1, 'dmg': 0}
+            clog('stun', 'You are stunned! You will lose your next turn.')
+
+
+def _enemy_turn(player, enemy, clog, defending):
+    if enemy.stunned:
+        enemy.stunned = False
+        if enemy.charging:
+            clog('stun', f'{enemy.name}\'s {enemy.charging} is interrupted!')
+            enemy.charging = None
+        clog('warning', f'{enemy.name} is stunned and loses its turn!')
+        return
+
+    if enemy.charging:
+        name, enemy.charging = enemy.charging, None
+        _enemy_ability(player, enemy, name, ability_spec(name), clog, defending)
+        return
+
+    if enemy.phase == 2:
+        chance = PHASE2_ABILITY_CHANCE
+    elif enemy.is_boss:
+        chance = BOSS_ABILITY_CHANCE
+    else:
+        chance = ENEMY_ABILITY_CHANCE
+
+    if enemy.abilities and random.random() < chance:
+        name = random.choice(enemy.abilities)
+        spec = ability_spec(name)
+        repeat_buff = ((spec['kind'] == 'enrage' and 'Enraged' in enemy.statuses)
+                       or (spec['kind'] == 'shield' and 'Shielded' in enemy.statuses)
+                       or (spec['kind'] == 'evade' and 'Evading' in enemy.statuses))
+        if not repeat_buff:
+            if spec.get('charge'):
+                enemy.charging = name
+                clog('danger', f'⚠ {enemy.name} begins gathering power for {name}! '
+                               f'Defend, dodge or stun it!')
+                return
+            _enemy_ability(player, enemy, name, spec, clog, defending)
+            return
+
+    crit = random.random() < 0.1
+    lost = _enemy_hit(player, enemy, 1.5 if crit else 1.0, clog, defending)
+    if lost:
+        clog('enemy', f'{enemy.name} {"CRITS" if crit else "attacks"}: -{lost} HP')
+
+
+def _check_boss_phase(enemy, clog):
+    if enemy.is_boss and enemy.phase == 1 and enemy.hp < enemy.max_hp * 0.5:
+        enemy.phase = 2
+        enemy.statuses.pop('Chilled', None)
+        if enemy.phase2_text:
+            clog('lore', enemy.phase2_text)
+        clog('danger', f'{enemy.name} enters its second phase! (ATK +15%, uses abilities more often)')
+
+
+# ── Round ──────────────────────────────────────────────────────────────────────
+
+def do_combat_turn(state, action, ability_idx=None, item_idx=None):
+    player = state['player']
+    enemy  = state['combat_enemy']
+    log    = state['combat_log']
+
+    def clog(kind, text):
+        log.append({'kind': kind, 'text': text})
+
+    defending = False
+    if 'Stunned' in player.debuffs:
+        del player.debuffs['Stunned']
+        player.buffs['Steadfast'] = STUN_IMMUNITY_TURNS
+        clog('stun', 'You are stunned and cannot act!')
+    elif action == 'attack':
+        _player_attack(player, enemy, clog)
+    elif action == 'defend':
+        defending = True
+        regen = min(int(player.max_mp * DEFEND_MP_REGEN), player.max_mp - player.mp)
+        player.mp += regen
+        clog('buff', f'You raise your guard. (half damage, no stuns this turn, +{regen} MP)')
+    elif action == 'ability' and ability_idx is not None:
+        abilities = player.get_abilities()
+        if 0 <= ability_idx < len(abilities):
+            if not _player_ability(player, enemy, abilities[ability_idx], clog):
+                return 'continue'
+    elif action == 'item' and item_idx is not None:
+        consumables = [i for i in player.inventory if i.item_type == 'consumable']
+        if 0 <= item_idx < len(consumables):
+            ok, text = player.use_consumable(consumables[item_idx])
+            clog('heal' if ok else 'danger', text)
+    elif action == 'flee':
+        if player.profession == 'Ranger':
+            clog('warning', 'Ranger instincts guide you to safety!')
+            return 'fled'
+        flee_chance = 30 + int(player.dex) + int(player.speed * 1.5)
+        if random.randint(1, 100) < flee_chance - enemy.atk:
+            clog('warning', 'You fled from the battle!')
+            return 'fled'
+        clog('danger', "Couldn't flee! The enemy blocks your escape!")
+
+    if not enemy.is_alive():
+        return 'victory'
+    _check_boss_phase(enemy, clog)
+
+    dot_dmg = enemy.tick_dot()
+    if dot_dmg:
+        clog('poison', f'{enemy.dot_name} deals {dot_dmg} to {enemy.name}. ({enemy.hp} HP left)')
+        if not enemy.is_alive():
+            return 'victory'
+
+    _enemy_turn(player, enemy, clog, defending)
+    enemy.tick_statuses()
+
+    expired = player.tick_buffs()
+    ticks, expired_debuffs = player.tick_debuffs()
+    for name, dmg in ticks:
+        clog('danger', f'{name}: -{dmg} HP')
+    for b in expired + expired_debuffs:
+        if not b.endswith('_buff') and b != 'Steadfast':
+            clog('warning', f'{b} wore off.')
+
+    if player.hp <= 0:
+        if player.has_revive():
+            clog('warning', 'Defeated... but a Phoenix Feather saves you!')
+            player.consume_revive()
+            return 'revived'
+        return 'defeat'
+
+    state['combat_turn'] += 1
+    return 'continue'

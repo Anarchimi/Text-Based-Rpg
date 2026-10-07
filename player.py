@@ -4,6 +4,8 @@ from abilities import get_available_abilities
 XP_TABLE = [0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200,
             4000, 5000, 6200, 7600, 9200, 11000, 13200, 15800, 18800, 22200]
 
+SPELL_INT_MULT = 1.0  # Mage spell power = INT × this + weapon ATK
+
 CLASS_BASES = {
     "Warrior": {"hp": 120, "mp": 40,  "str": 14, "dex": 8,  "int": 6,  "vit": 12, "lck": 5},
     "Mage":    {"hp": 70,  "mp": 100, "str": 6,  "dex": 8,  "int": 16, "vit": 6,  "lck": 7},
@@ -12,8 +14,8 @@ CLASS_BASES = {
 
 CLASS_GROWTH = {
     "Warrior": {"hp": 16, "mp": 4,  "str": 2.5, "dex": 1,   "int": 0.5, "vit": 2,   "lck": 0.3},
-    "Mage":    {"hp": 8,  "mp": 14, "str": 0.5, "dex": 1,   "int": 3,   "vit": 0.8, "lck": 0.5},
-    "Rogue":   {"hp": 10, "mp": 7,  "str": 1.2, "dex": 2.8, "int": 1,   "vit": 1,   "lck": 0.8},
+    "Mage":    {"hp": 11, "mp": 14, "str": 0.5, "dex": 1,   "int": 3,   "vit": 0.8, "lck": 0.5},
+    "Rogue":   {"hp": 14, "mp": 10, "str": 1.2, "dex": 2.8, "int": 1,   "vit": 1,   "lck": 0.8},
 }
 
 SKILL_TREE = {
@@ -224,8 +226,20 @@ class Player:
         weap = self.equipment["weapon"].stats.get("atk", 0) if self.equipment["weapon"] else 0
         berserk = 2 if "Berserk" in self.buffs else 1
         battle_cry = 1.2 if "Battle Cry" in self.buffs else 1
+        weakened = 0.75 if "Weakened" in self.debuffs else 1
         champion_bonus = int((base + weap) * 0.10) if self.profession == "Champion" else 0
-        return int((base + weap + champion_bonus) * berserk * battle_cry)
+        return int((base + weap + champion_bonus) * berserk * battle_cry * weakened)
+
+    @property
+    def spell_power(self):
+        weap = self.equipment["weapon"].stats.get("atk", 0) if self.equipment["weapon"] else 0
+        weakened = 0.75 if "Weakened" in self.debuffs else 1
+        return int((self.int * SPELL_INT_MULT + weap) * weakened)
+
+    @property
+    def ability_power(self):
+        """What damage abilities scale with: spell power for Mages, ATK otherwise."""
+        return self.spell_power if self.player_class == "Mage" else self.attack
 
     @property
     def defense(self):
@@ -445,9 +459,6 @@ class Player:
             if self.buffs[b] <= 0:
                 expired.append(b)
                 del self.buffs[b]
-        if self.dot > 0:
-            self.hp = max(0, self.hp - self.dot_dmg)
-            self.dot -= 1
         # Tick temp buffs
         still_active = []
         for b in self.temp_buffs:
@@ -459,6 +470,39 @@ class Player:
                 expired.append(f"{b['stat']}_buff")
         self.temp_buffs = still_active
         return expired
+
+    # ── Debuffs (applied by enemies; see combat.py) ─────────────────────────────
+    # self.debuffs: {name: {"turns": n, "dmg": per-turn damage (DoTs only)}}
+    DOT_DEBUFFS = ("Poisoned", "Burning", "Bleeding")
+
+    def add_debuff(self, name, turns, dmg=0):
+        cur = self.debuffs.get(name)
+        if cur:  # re-applying refreshes duration and keeps the stronger tick
+            cur["turns"] = max(cur["turns"], turns)
+            cur["dmg"] = max(cur.get("dmg", 0), dmg)
+        else:
+            self.debuffs[name] = {"turns": turns, "dmg": dmg}
+
+    def tick_debuffs(self):
+        """Apply DoTs and count down. Returns ([(name, dmg)], [expired names])."""
+        ticks, expired = [], []
+        for name in list(self.debuffs):
+            if name == "Stunned":  # consumed when the player's next turn is skipped
+                continue
+            d = self.debuffs[name]
+            if name in self.DOT_DEBUFFS and d.get("dmg"):
+                self.hp = max(0, self.hp - d["dmg"])
+                ticks.append((name, d["dmg"]))
+            d["turns"] -= 1
+            if d["turns"] <= 0:
+                del self.debuffs[name]
+                expired.append(name)
+        return ticks, expired
+
+    def __setstate__(self, d):
+        # debuffs used to be an unused {} on old saves; make sure it exists.
+        d.setdefault("debuffs", {})
+        self.__dict__.update(d)
 
     # ── Gathering / Crafting skills ────────────────────────────────────────────
     def add_resource(self, name, qty=1):

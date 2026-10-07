@@ -1,6 +1,25 @@
 import random
 from items import generate_loot
 
+# Defense reduces damage by a percentage: DEF_K defense halves incoming damage.
+# (Flat subtraction made early bosses harmless and late bosses unkillable.)
+DEF_K = 100
+
+
+# Balance knobs — tune with `python tools/balance_sim.py`.
+MOB_HP_MULT     = 2.6   # regular enemies' HP multiplier
+MOB_HP_GROWTH   = 1.1   # × template hp_s per level
+MOB_ATK_GROWTH  = 0.9   # × template atk_s per level
+MOB_DEF_GROWTH  = 1.0   # × template def_s per level
+BOSS_HP_GROWTH  = 0.10  # boss stat = base × (1 + growth × (level - 1))
+BOSS_ATK_GROWTH = 0.06
+BOSS_DEF_GROWTH = 0.06
+NG_PLUS_POWER   = 0.25  # each New Game+ cycle: enemy HP/ATK/DEF × (1 + this × cycle)
+
+
+def mitigate(dmg, defense):
+    return max(1, int(dmg * DEF_K / (DEF_K + max(0, defense))))
+
 ENEMY_TEMPLATES = [
     # (name, hp_base, hp_scale, atk_base, atk_scale, def_base, def_scale, xp_base, gold_base, zone_min, abilities)
     {"name": "Goblin",        "hp": 30,  "hp_s": 4,  "atk": 8,  "atk_s": 1.2, "def": 2,  "def_s": 0.3, "xp": 30,  "gold": 8,  "zone": 1, "tier": 1,
@@ -25,26 +44,116 @@ ENEMY_TEMPLATES = [
      "abilities": ["Shadow Strike", "Vanish", "Poison Blade"]},
     {"name": "Lich",          "hp": 160, "hp_s": 18, "atk": 35, "atk_s": 5.0, "def": 12, "def_s": 1.5, "xp": 250, "gold": 80, "zone": 4, "tier": 4,
      "abilities": ["Soul Rend", "Undead Army", "Death Coil"]},
-    {"name": "Ancient Dragon",  "hp": 300, "hp_s": 35, "atk": 45, "atk_s": 8.0, "def": 20, "def_s": 2.5, "xp": 400, "gold": 150,"zone": 5, "tier": 5,
+    {"name": "Ancient Dragon",  "hp": 220, "hp_s": 20, "atk": 40, "atk_s": 5.5, "def": 18, "def_s": 1.8, "xp": 400, "gold": 150,"zone": 5, "tier": 5,
      "abilities": ["Dragon Breath", "Tail Crush", "Roar", "Wing Buffet"]},
-    {"name": "Chaos Elemental", "hp": 220, "hp_s": 28, "atk": 50, "atk_s": 7.5, "def": 14, "def_s": 1.8, "xp": 380, "gold": 130,"zone": 5, "tier": 5,
+    {"name": "Chaos Elemental", "hp": 170, "hp_s": 17, "atk": 44, "atk_s": 6.0, "def": 14, "def_s": 1.4, "xp": 380, "gold": 130,"zone": 5, "tier": 5,
      "abilities": ["Chaos Burst", "Void Rift", "Elemental Storm"]},
-    {"name": "Undead Titan",    "hp": 380, "hp_s": 40, "atk": 42, "atk_s": 7.0, "def": 25, "def_s": 3.0, "xp": 420, "gold": 160,"zone": 5, "tier": 5,
+    {"name": "Undead Titan",    "hp": 260, "hp_s": 22, "atk": 38, "atk_s": 5.0, "def": 22, "def_s": 2.2, "xp": 420, "gold": 160,"zone": 5, "tier": 5,
      "abilities": ["Titan Slam", "Bone Crush", "Death Wail"]},
-    {"name": "Void Stalker",    "hp": 260, "hp_s": 30, "atk": 55, "atk_s": 9.0, "def": 12, "def_s": 1.5, "xp": 450, "gold": 175,"zone": 5, "tier": 5,
+    {"name": "Void Stalker",    "hp": 190, "hp_s": 18, "atk": 48, "atk_s": 6.5, "def": 12, "def_s": 1.2, "xp": 450, "gold": 175,"zone": 5, "tier": 5,
      "abilities": ["Phase Strike", "Void Step", "Reality Tear", "Soul Devour"]},
 ]
 
+# Each zone boss guards one of the Five Seals (seal = zone). Breaking all five
+# lets the player confront FINAL_BOSS on Dragon's Peak.
 BOSS_TEMPLATES = [
     {"name": "Goblin King",       "zone": 1, "hp": 200,  "atk": 20, "def": 8,  "xp": 300,  "gold": 100,
-     "abilities": ["Rage", "Minion Summon", "Heavy Slash"]},
+     "abilities": ["Rage", "Minion Summon", "Heavy Slash"],
+     "phase2": "The Goblin King hurls his crown aside. 'ENOUGH!'"},
     {"name": "Undead Warlord",    "zone": 2, "hp": 350,  "atk": 35, "def": 15, "xp": 600,  "gold": 200,
-     "abilities": ["Death Strike", "Soul Drain", "Bone Shield"]},
+     "abilities": ["Death Strike", "Soul Drain", "Bone Shield"],
+     "phase2": "Bones knit back together. The Warlord's eyes burn brighter."},
     {"name": "Arcane Lich King",  "zone": 3, "hp": 500,  "atk": 50, "def": 20, "xp": 1000, "gold": 350,
-     "abilities": ["Arcane Explosion", "Time Warp", "Meteor Strike"]},
-    {"name": "Chaos Dragon Lord", "zone": 4, "hp": 800,  "atk": 70, "def": 30, "xp": 2000, "gold": 600,
-     "abilities": ["Chaos Breath", "World Ender", "Eternal Flame", "Void Crush"]},
+     "abilities": ["Arcane Explosion", "Time Warp", "Meteor Strike"],
+     "phase2": "The Lich King's phylactery cracks — raw magic pours out."},
+    {"name": "Shadow Sovereign",  "zone": 4, "hp": 600,  "atk": 58, "def": 22, "xp": 1400, "gold": 450,
+     "abilities": ["Umbral Lance", "Eclipse", "Night Veil", "Soul Siphon"],
+     "phase2": "The Sovereign's shadow tears free and fights beside it."},
+    {"name": "Ignaroth the Elder Wyrm", "zone": 5, "hp": 640, "atk": 60, "def": 24, "xp": 1800, "gold": 550,
+     "abilities": ["Inferno", "Crushing Talon", "Ancient Roar", "Wing Gale"],
+     "phase2": "Ignaroth roars. Molten scales fall away, revealing white-hot flesh."},
 ]
+
+FINAL_BOSS = {"name": "Chaos Dragon Lord", "zone": 5, "hp": 900, "atk": 70, "def": 28, "xp": 3000, "gold": 1000,
+              "abilities": ["Chaos Breath", "World Ender", "Eternal Flame", "Void Crush"],
+              "phase2": "THE CHAOS DRAGON LORD UNFURLS ITS TRUE FORM. Reality buckles."}
+
+# What each enemy ability actually does. Unlisted names fall back to DEFAULT_ABILITY.
+#   kind: hit | drain | dot | stun | weaken | enrage | shield | evade
+#   mult: damage as a multiple of the enemy's ATK; hits: number of strikes
+#   status/turns/dot: debuff applied to the player (dot = per-turn damage as ×ATK)
+#   chance: chance the status lands; charge: telegraphed one turn in advance
+DEFAULT_ABILITY = {"kind": "hit", "mult": 1.3}
+ENEMY_ABILITIES = {
+    # Zone 1
+    "Scratch":        {"kind": "hit",    "mult": 1.1},
+    "Flee Attempt":   {"kind": "evade",  "text": "darts around, ready to dodge"},
+    "Bone Crush":     {"kind": "weaken", "mult": 1.2, "turns": 2},
+    "Bite":           {"kind": "dot",    "mult": 1.0, "status": "Bleeding", "turns": 3, "dot": 0.25},
+    "Howl":           {"kind": "enrage", "text": "howls, working itself into a frenzy"},
+    "Slash":          {"kind": "hit",    "mult": 1.3},
+    "Cheap Shot":     {"kind": "stun",   "mult": 0.8, "chance": 0.5},
+    # Zone 2
+    "Heavy Blow":     {"kind": "hit",    "mult": 1.6},
+    "War Cry":        {"kind": "enrage", "text": "lets out a bloodcurdling war cry"},
+    "Dark Bolt":      {"kind": "hit",    "mult": 1.5},
+    "Drain Life":     {"kind": "drain",  "mult": 1.2},
+    "Ground Slam":    {"kind": "stun",   "mult": 1.2, "chance": 0.3},
+    "Rock Throw":     {"kind": "hit",    "mult": 1.4},
+    # Zone 3
+    "Blood Drain":    {"kind": "drain",  "mult": 1.3},
+    "Hypnosis":       {"kind": "stun",   "mult": 0.0, "chance": 0.6},
+    "Bat Swarm":      {"kind": "hit",    "mult": 0.5, "hits": 3},
+    "Tail Swipe":     {"kind": "hit",    "mult": 1.4},
+    "Fire Breath":    {"kind": "dot",    "mult": 1.1, "status": "Burning", "turns": 2, "dot": 0.4},
+    "Shadow Strike":  {"kind": "hit",    "mult": 1.7},
+    "Vanish":         {"kind": "evade",  "text": "melts into the shadows"},
+    "Poison Blade":   {"kind": "dot",    "mult": 0.9, "status": "Poisoned", "turns": 4, "dot": 0.25},
+    # Zone 4
+    "Soul Rend":      {"kind": "weaken", "mult": 1.3, "turns": 3},
+    "Undead Army":    {"kind": "hit",    "mult": 0.55, "hits": 3},
+    "Death Coil":     {"kind": "drain",  "mult": 1.4},
+    # Zone 5
+    "Dragon Breath":  {"kind": "dot",    "mult": 1.3, "status": "Burning", "turns": 2, "dot": 0.4},
+    "Tail Crush":     {"kind": "hit",    "mult": 1.6},
+    "Roar":           {"kind": "weaken", "mult": 0.0, "turns": 3},
+    "Wing Buffet":    {"kind": "stun",   "mult": 1.0, "chance": 0.35},
+    "Chaos Burst":    {"kind": "hit",    "mult": 1.7},
+    "Void Rift":      {"kind": "weaken", "mult": 1.1, "turns": 3},
+    "Elemental Storm":{"kind": "dot",    "mult": 0.5, "hits": 3, "status": "Burning", "turns": 2, "dot": 0.3},
+    "Titan Slam":     {"kind": "stun",   "mult": 1.7, "chance": 0.25},
+    "Death Wail":     {"kind": "weaken", "mult": 0.8, "turns": 3},
+    "Phase Strike":   {"kind": "hit",    "mult": 1.6},
+    "Void Step":      {"kind": "evade",  "text": "flickers out of phase"},
+    "Reality Tear":   {"kind": "dot",    "mult": 1.0, "status": "Bleeding", "turns": 4, "dot": 0.25},
+    "Soul Devour":    {"kind": "drain",  "mult": 1.5},
+    # Bosses
+    "Rage":           {"kind": "enrage", "text": "flies into a rage"},
+    "Minion Summon":  {"kind": "hit",    "mult": 0.5, "hits": 3, "text": "summons goblins — they swarm you"},
+    "Heavy Slash":    {"kind": "hit",    "mult": 1.6},
+    "Death Strike":   {"kind": "hit",    "mult": 2.2, "charge": True},
+    "Soul Drain":     {"kind": "drain",  "mult": 1.3},
+    "Bone Shield":    {"kind": "shield", "turns": 2, "text": "raises a wall of bone"},
+    "Arcane Explosion":{"kind": "hit",   "mult": 1.7},
+    "Time Warp":      {"kind": "stun",   "mult": 0.0, "chance": 0.7},
+    "Meteor Strike":  {"kind": "dot",    "mult": 2.2, "status": "Burning", "turns": 2, "dot": 0.3, "charge": True},
+    "Umbral Lance":   {"kind": "hit",    "mult": 1.8},
+    "Eclipse":        {"kind": "weaken", "mult": 0.9, "turns": 3},
+    "Night Veil":     {"kind": "evade",  "text": "wraps itself in living darkness"},
+    "Soul Siphon":    {"kind": "drain",  "mult": 1.4},
+    "Inferno":        {"kind": "dot",    "mult": 1.2, "status": "Burning", "turns": 3, "dot": 0.3},
+    "Crushing Talon": {"kind": "dot",    "mult": 1.5, "status": "Bleeding", "turns": 3, "dot": 0.2},
+    "Ancient Roar":   {"kind": "weaken", "mult": 0.0, "turns": 3},
+    "Wing Gale":      {"kind": "stun",   "mult": 1.0, "chance": 0.35},
+    "Chaos Breath":   {"kind": "dot",    "mult": 1.4, "status": "Burning", "turns": 3, "dot": 0.3},
+    "World Ender":    {"kind": "hit",    "mult": 3.0, "charge": True},
+    "Eternal Flame":  {"kind": "shield", "turns": 2, "text": "is wreathed in eternal flame"},
+    "Void Crush":     {"kind": "weaken", "mult": 1.5, "turns": 3},
+}
+
+
+def ability_spec(name):
+    return ENEMY_ABILITIES.get(name, DEFAULT_ABILITY)
 
 
 class Enemy:
@@ -56,16 +165,16 @@ class Enemy:
 
         scale = level - 1
         if is_boss:
-            power_scale = 1 + scale * 0.12
-            self.max_hp = int(template["hp"] * power_scale)
-            self.atk    = int(template["atk"] * power_scale)
-            self.def_   = int(template["def"] * power_scale)
-            self.xp     = int(template["xp"] * power_scale)
-            self.gold   = int(template["gold"] * power_scale)
+            reward_scale = 1 + scale * 0.12
+            self.max_hp = int(template["hp"] * (1 + scale * BOSS_HP_GROWTH))
+            self.atk    = int(template["atk"] * (1 + scale * BOSS_ATK_GROWTH))
+            self.def_   = int(template["def"] * (1 + scale * BOSS_DEF_GROWTH))
+            self.xp     = int(template["xp"] * reward_scale)
+            self.gold   = int(template["gold"] * reward_scale)
         else:
-            self.max_hp = int(template["hp"] + template["hp_s"] * scale * 1.4)
-            self.atk    = int(template["atk"] + template["atk_s"] * scale * 1.3)
-            self.def_   = int(template["def"] + template["def_s"] * scale * 1.3)
+            self.max_hp = int((template["hp"] + template["hp_s"] * scale * MOB_HP_GROWTH) * MOB_HP_MULT)
+            self.atk    = int(template["atk"] + template["atk_s"] * scale * MOB_ATK_GROWTH)
+            self.def_   = int(template["def"] + template["def_s"] * scale * MOB_DEF_GROWTH)
             self.xp     = int(template["xp"] + scale * 15)
             self.gold   = int(template["gold"] + scale * 5)
 
@@ -73,32 +182,67 @@ class Enemy:
         self.debuffs  = {}
         self.dot      = 0
         self.dot_dmg  = 0
+        self.dot_name = "Poison"
         self.stunned  = False
+        self.statuses = {}      # {"Chilled"|"Enraged"|"Shielded"|"Evading": turns left}
+        self.charging = None    # ability name being telegraphed for next turn
+        self.phase    = 1       # bosses enter phase 2 below 50% HP
+        self.phase2_text = template.get("phase2")
+        self.seal     = template["zone"] if is_boss else None
+        self.is_final = False
+
+    def __setstate__(self, d):
+        # Saves pickled before these attributes existed.
+        d.setdefault("statuses", {})
+        d.setdefault("dot_name", "Poison")
+        d.setdefault("charging", None)
+        d.setdefault("phase", 1)
+        d.setdefault("phase2_text", None)
+        d.setdefault("seal", None)
+        d.setdefault("is_final", False)
+        self.__dict__.update(d)
+
+    def apply_ng_plus(self, ng):
+        """New Game+ cycle `ng` makes everything tougher and more rewarding."""
+        if ng <= 0:
+            return
+        power = 1 + NG_PLUS_POWER * ng
+        self.max_hp = self.hp = int(self.max_hp * power)
+        self.atk  = int(self.atk * power)
+        self.def_ = int(self.def_ * power)
+        self.xp   = int(self.xp * (1 + 0.25 * ng))
+        self.gold = int(self.gold * (1 + 0.25 * ng))
+
+    @property
+    def effective_atk(self):
+        atk = self.atk
+        if "Enraged" in self.statuses:
+            atk *= 1.3
+        if "Chilled" in self.statuses:
+            atk *= 0.75
+        if self.phase == 2:
+            atk *= 1.15
+        return atk
+
+    def tick_statuses(self):
+        expired = []
+        for name in list(self.statuses):
+            self.statuses[name] -= 1
+            if self.statuses[name] <= 0:
+                del self.statuses[name]
+                expired.append(name)
+        return expired
 
     def is_alive(self):
         return self.hp > 0
 
     def take_damage(self, dmg):
-        reduced = max(1, dmg - self.def_)
+        """Apply a player hit after defense and Shielded. Returns damage dealt."""
+        reduced = mitigate(dmg, self.def_)
+        if "Shielded" in self.statuses:
+            reduced = max(1, reduced // 2)
         self.hp = max(0, self.hp - reduced)
         return reduced
-
-    def attack_player(self, player_def):
-        base = self.atk + random.randint(-3, 5)
-        if self.stunned:
-            self.stunned = False
-            return 0, True   # (dmg, was_stunned)
-        crit = random.random() < 0.1
-        dmg  = int(base * (1.5 if crit else 1.0))
-        reduced = max(1, dmg - player_def)
-        return reduced, False
-
-    def use_ability(self):
-        if not self.abilities:
-            return None, 0
-        ability = random.choice(self.abilities)
-        bonus = random.randint(5, 20)
-        return ability, bonus
 
     def tick_dot(self):
         if self.dot > 0:
@@ -114,18 +258,27 @@ class Enemy:
         return items, max(1, gold)
 
 
-def spawn_enemy(zone=1, level=1, force_boss=False):
+def spawn_enemy(zone=1, level=1, force_boss=False, ng=0):
     if force_boss:
-        candidates = [t for t in BOSS_TEMPLATES if t["zone"] <= zone]
-        t = max(candidates, key=lambda x: x["zone"]) if candidates else BOSS_TEMPLATES[0]
-        return Enemy(t, level=level, is_boss=True)
+        t = next((b for b in BOSS_TEMPLATES if b["zone"] == zone), BOSS_TEMPLATES[0])
+        enemy = Enemy(t, level=level, is_boss=True)
+    else:
+        candidates = [t for t in ENEMY_TEMPLATES if t["zone"] <= zone]
+        if not candidates:
+            candidates = [ENEMY_TEMPLATES[0]]
+        tier_weights = [2 ** t["tier"] for t in candidates]
+        t = random.choices(candidates, weights=tier_weights, k=1)[0]
+        enemy = Enemy(t, level=max(1, level + random.randint(-1, 2)))
+    enemy.apply_ng_plus(ng)
+    return enemy
 
-    candidates = [t for t in ENEMY_TEMPLATES if t["zone"] <= zone]
-    if not candidates:
-        candidates = [ENEMY_TEMPLATES[0]]
-    tier_weights = [2 ** t["tier"] for t in candidates]
-    t = random.choices(candidates, weights=tier_weights, k=1)[0]
-    return Enemy(t, level=max(1, level + random.randint(-1, 2)))
+
+def spawn_final_boss(level, ng=0):
+    enemy = Enemy(FINAL_BOSS, level=level, is_boss=True)
+    enemy.seal = None
+    enemy.is_final = True
+    enemy.apply_ng_plus(ng)
+    return enemy
 
 
 def get_zone_enemies(zone):
