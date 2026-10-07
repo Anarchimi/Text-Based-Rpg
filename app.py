@@ -9,11 +9,12 @@ from flask import Flask, session, request, redirect, url_for, render_template
 from flask_compress import Compress
 
 from player import Player, PROFESSIONS
-from enemies import spawn_enemy, spawn_final_boss
+from enemies import BOSS_TEMPLATES, spawn_enemy, spawn_final_boss
+from quests import BOUNTY_LEADER_CHANCE
 from combat import do_combat_turn, end_combat, hit_player  # noqa: F401  (hit_player re-exported for tests)
 from quests import QuestLog, generate_quest
-from items import generate_shop_stock, generate_weapon, generate_armor, generate_consumable
-from world import explore_step, travel_to_zone, ZONES, ZONE_LEVEL_REQ, get_zone
+from items import generate_shop_stock, generate_weapon, generate_armor, generate_consumable, upgrade_cost
+from world import explore_step, travel_to_zone, ZONES, ZONE_LEVEL_REQ, LAIR_STEPS, get_zone
 from crafting import (TRADE_PROFESSIONS, CRAFTING_RECIPES, ZONE_RESOURCES,
                       GATHERING_SKILLS, CRAFTING_SKILLS, SKILL_ICONS,
                       GATHER_BUTTON_LABELS, gather_resource, craft_item, calc_skill_level)
@@ -36,6 +37,7 @@ Compress(app)
 
 app.jinja_env.globals['enumerate'] = enumerate
 app.jinja_env.globals['len'] = len
+app.jinja_env.globals['upgrade_cost'] = upgrade_cost
 
 # Saves outlive restarts: default to <repo>/instance/saves, override with RPG_SAVE_DIR
 # (point it at a persistent volume in production).
@@ -150,6 +152,7 @@ def fresh_state():
         'seals': set(),           # zone ids whose boss has been defeated
         'dragon_slain': False,
         'ng_plus': 0,
+        'lair_progress': {},      # zone id -> explore steps taken there (LAIR_STEPS finds the boss)
         'triggered_events': set(),
         'craft_skill': 'Smithing',
     }
@@ -172,6 +175,14 @@ def check_profession_unlock(state, player, fallback_screen):
     return False
 
 
+def zone_boss_name(zone):
+    return next(b['name'] for b in BOSS_TEMPLATES if b['zone'] == zone)
+
+
+def lair_found(state):
+    return state.get('lair_progress', {}).get(state['zone'], 0) >= LAIR_STEPS
+
+
 def final_battle_available(state):
     return (len(state.get('seals', ())) >= 5 and not state.get('dragon_slain')
             and state['zone'] == 5)
@@ -185,6 +196,7 @@ def start_new_game_plus(state):
     state['narrative_stage'] = 0
     state['dragon_slain'] = False
     state['triggered_events'] = set()
+    state['lair_progress'] = {}
     state['zone'] = 1
     player.hp, player.mp = player.max_hp, player.max_mp
     state['screen'] = 'hub'
@@ -264,7 +276,9 @@ def index():
                            gathering_skills=GATHERING_SKILLS,
                            crafting_skills_list=CRAFTING_SKILLS,
                            enemy_sprites=ENEMY_SPRITES,
-                           final_ready=bool(state.get('player')) and final_battle_available(state))
+                           final_ready=bool(state.get('player')) and final_battle_available(state),
+                           lair_steps=LAIR_STEPS,
+                           zone_boss=zone_boss_name(state.get('zone') or 1))
 
 
 @app.route('/action', methods=['POST'])
@@ -338,6 +352,11 @@ def action():
         clear_msgs(state)
 
         if act == 'explore':
+            lairs = state['lair_progress']
+            lairs[state['zone']] = lairs.get(state['zone'], 0) + 1
+            if lairs[state['zone']] == LAIR_STEPS:
+                add_msg(state, 'lore', f"💀 You've found the lair of {zone_boss_name(state['zone'])}! "
+                                       f"You can challenge it from here whenever you're ready.")
             triggered = state.setdefault('triggered_events', set())
             events = explore_step(player, state['zone'], triggered)
             for ev_type, val, ev_msg in events:
@@ -386,6 +405,11 @@ def action():
                     add_msg(state, 'warning', ev_msg)
                     enemy = spawn_enemy(zone=state['zone'], level=player.level, force_boss=force_boss,
                                         ng=state.get('ng_plus', 0))
+                    if (not enemy.is_boss and random.random() < BOUNTY_LEADER_CHANCE
+                            and any(q.quest_type == 'bounty' and q.target_name == enemy.name
+                                    for q in quest_log.active_quests())):
+                        enemy.make_leader()
+                        add_msg(state, 'danger', f'This one is bigger than the rest — the {enemy.name}!')
                     enemy_name_for_log = f"A {enemy.name}" if not enemy.is_boss else f"BOSS: {enemy.name}"
                     state['combat_enemy'] = enemy
                     state['combat_turn']  = 1
@@ -405,6 +429,15 @@ def action():
                         player.quests_completed += 1
                         add_msg(state, 'quest', f'Quest complete: {q.title}! +{q.reward_gold}g +{q.reward_xp} XP')
                 check_profession_unlock(state, player, 'hub')
+
+        elif act == 'challenge_boss' and lair_found(state):
+            enemy = spawn_enemy(zone=state['zone'], level=player.level, force_boss=True,
+                                ng=state.get('ng_plus', 0))
+            state['combat_enemy'] = enemy
+            state['combat_turn']  = 1
+            state['combat_log']   = [{'kind': 'lore', 'text': f'You enter the lair. {enemy.name} rises to meet you!'}]
+            player.first_strike_used = False
+            state['screen'] = 'combat'
 
         elif act == 'final_battle' and final_battle_available(state):
             enemy = spawn_final_boss(player.level, ng=state.get('ng_plus', 0))
@@ -568,6 +601,9 @@ def action():
             if 0 <= idx < len(equippable):
                 ok, text = player.equip(equippable[idx])
                 add_msg(state, 'success' if ok else 'danger', text)
+        elif act in ('upgrade_weapon', 'upgrade_armor'):
+            ok, text = player.upgrade_equipped(act.split('_', 1)[1])
+            add_msg(state, 'success' if ok else 'danger', text)
         elif act.startswith('use_'):
             try:
                 idx = int(act.split('_')[1])

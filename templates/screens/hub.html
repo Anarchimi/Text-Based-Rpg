@@ -38,6 +38,15 @@
     {% if state.dragon_slain %}— THE REALM IS SAVED{% elif state.narrative_stage >= 5 %}— THE DRAGON AWAKENS{% endif %}</div>
   {% endif %}
 
+  {% set lair = state.lair_progress.get(state.zone, 0) %}
+  {% if lair >= lair_steps %}
+  <form method="post" action="/action">
+    <button class="btn-purple btn-center" name="action" value="challenge_boss">💀 Challenge {{ zone_boss }}{% if state.zone in state.seals %} <span class="ability-desc">Seal already broken — fight again for loot</span>{% endif %}</button>
+  </form>
+  {% elif state.zone not in state.seals %}
+  <div class="seal-bar" style="opacity:.8">Searching for {{ zone_boss }}'s lair: {{ lair }}/{{ lair_steps }}</div>
+  {% endif %}
+
   {% if final_ready %}
   <form method="post" action="/action">
     <button class="btn-red btn-center" name="action" value="final_battle">🔥 Confront the Chaos Dragon Lord</button>

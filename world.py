@@ -63,6 +63,9 @@ NAMED_EVENTS = {
 }
 
 
+LAIR_STEPS = 12  # explore a zone this many times to find its boss's lair (then challenge it at will)
+
+
 def get_zone(zone_id):
     return ZONES.get(zone_id, ZONES[1])
 

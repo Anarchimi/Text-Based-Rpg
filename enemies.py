@@ -190,6 +190,7 @@ class Enemy:
         self.phase2_text = template.get("phase2")
         self.seal     = template["zone"] if is_boss else None
         self.is_final = False
+        self.template_name = self.name   # sprite / quest lookups survive renames like "X Leader"
 
     def __setstate__(self, d):
         # Saves pickled before these attributes existed.
@@ -200,6 +201,7 @@ class Enemy:
         d.setdefault("phase2_text", None)
         d.setdefault("seal", None)
         d.setdefault("is_final", False)
+        d.setdefault("template_name", d.get("name"))
         self.__dict__.update(d)
 
     def apply_ng_plus(self, ng):
@@ -212,6 +214,16 @@ class Enemy:
         self.def_ = int(self.def_ * power)
         self.xp   = int(self.xp * (1 + 0.25 * ng))
         self.gold = int(self.gold * (1 + 0.25 * ng))
+
+    def make_leader(self):
+        """Bounty target: a named, tougher, richer version of this enemy."""
+        self.template_name = self.name
+        self.name = f"{self.name} Leader"
+        self.max_hp = self.hp = int(self.max_hp * 1.5)
+        self.atk  = int(self.atk * 1.25)
+        self.def_ = int(self.def_ * 1.2)
+        self.xp   = self.xp * 2
+        self.gold = self.gold * 2
 
     @property
     def effective_atk(self):

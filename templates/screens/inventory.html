@@ -13,8 +13,27 @@
   <div class="card">
     {% set weap = p.equipment.get('weapon') %}
     {% set arm  = p.equipment.get('armor') %}
-    <div style="font-size:13px;margin-bottom:4px;">Weapon: <span class="{% if weap %}r-{{ weap.rarity }}{% else %}{% endif %}">{{ weap.name if weap else '—' }}</span></div>
-    <div style="font-size:13px;">Armor:  <span class="{% if arm %}r-{{ arm.rarity }}{% else %}{% endif %}">{{ arm.name if arm else '—' }}</span></div>
+    {% for slot, it in [('weapon', weap), ('armor', arm)] %}
+    <div class="item-row">
+      <div class="item-info">
+        <div style="font-size:13px;">{{ slot | capitalize }}: <span class="{% if it %}r-{{ it.rarity }}{% endif %}">{{ it.name if it else '—' }}</span></div>
+        {% if it %}<div class="item-meta">{% for k, v in it.stats.items() %}+{{ v }} {{ k.upper() }} {% endfor %}</div>{% endif %}
+        {% set cost = upgrade_cost(it) if it else none %}
+        {% if cost %}
+        {% set have = p.resources.get(cost[1], 0) %}
+        <div class="item-meta">Upgrade to +{{ it.upgrade + 1 }}: {{ cost[0] }}g + {{ cost[2] }}× {{ cost[1] }}
+          <span class="{% if have >= cost[2] %}have-yes{% else %}have-no{% endif %}">(have {{ have }})</span></div>
+        {% elif it %}<div class="item-meta" style="color:var(--yellow)">Fully upgraded</div>{% endif %}
+      </div>
+      {% if cost %}
+      <div class="item-actions">
+        <form method="post" action="/action">
+          <button class="btn-sm {% if p.gold >= cost[0] and have >= cost[2] %}btn-yellow{% else %}btn-dim{% endif %}" name="action" value="upgrade_{{ slot }}">⚒ Upgrade</button>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
   </div>
 
   {% set equippable  = p.inventory | selectattr('item_type', 'in', ['weapon', 'armor']) | list %}

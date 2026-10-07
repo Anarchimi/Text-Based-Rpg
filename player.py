@@ -4,6 +4,14 @@ from abilities import get_available_abilities
 XP_TABLE = [0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200,
             4000, 5000, 6200, 7600, 9200, 11000, 13200, 15800, 18800, 22200]
 
+STATS_VERSION = 2     # bump with a migration in Player.__setstate__ when stat rules change
+
+
+def skill_stats(skill):
+    """{stat: amount} a skill grants. Old saves stored a single "stat"/"bonus" pair."""
+    return skill.get("stats") or {skill["stat"]: skill["bonus"]}
+
+
 SPELL_INT_MULT = 1.0  # Mage spell power = INT × this + weapon ATK
 
 CLASS_BASES = {
@@ -20,28 +28,28 @@ CLASS_GROWTH = {
 
 SKILL_TREE = {
     "Warrior": [
-        {"name": "Iron Skin",        "desc": "+15 Max HP",           "stat": "max_hp",  "bonus": 15,  "cost": 1},
-        {"name": "Power Strike",     "desc": "+3 STR",               "stat": "str",     "bonus": 3,   "cost": 1},
-        {"name": "Fortitude",        "desc": "+8 Max HP, +2 VIT",    "stat": "max_hp",  "bonus": 8,   "cost": 2},
-        {"name": "Veteran's Edge",   "desc": "+5 STR, +3 VIT",       "stat": "str",     "bonus": 5,   "cost": 2},
-        {"name": "Titan's Grip",     "desc": "+10 STR",              "stat": "str",     "bonus": 10,  "cost": 3},
-        {"name": "Indomitable",      "desc": "+50 Max HP",           "stat": "max_hp",  "bonus": 50,  "cost": 3},
+        {"name": "Iron Skin",        "desc": "+15 Max HP",           "stats": {"max_hp": 15},  "cost": 1},
+        {"name": "Power Strike",     "desc": "+3 STR",               "stats": {"str": 3},   "cost": 1},
+        {"name": "Fortitude",        "desc": "+8 Max HP, +2 VIT",    "stats": {"max_hp": 8, "vit": 2},   "cost": 2},
+        {"name": "Veteran's Edge",   "desc": "+5 STR, +3 VIT",       "stats": {"str": 5, "vit": 3},   "cost": 2},
+        {"name": "Titan's Grip",     "desc": "+10 STR",              "stats": {"str": 10},  "cost": 3},
+        {"name": "Indomitable",      "desc": "+50 Max HP",           "stats": {"max_hp": 50},  "cost": 3},
     ],
     "Mage": [
-        {"name": "Mana Tap",         "desc": "+20 Max MP",           "stat": "max_mp",  "bonus": 20,  "cost": 1},
-        {"name": "Arcane Mind",      "desc": "+3 INT",               "stat": "int",     "bonus": 3,   "cost": 1},
-        {"name": "Spell Mastery",    "desc": "+8 INT",               "stat": "int",     "bonus": 8,   "cost": 2},
-        {"name": "Ley Lines",        "desc": "+40 Max MP",           "stat": "max_mp",  "bonus": 40,  "cost": 2},
-        {"name": "Archmage Focus",   "desc": "+15 INT",              "stat": "int",     "bonus": 15,  "cost": 3},
-        {"name": "Infinite Reservoir","desc": "+80 Max MP",          "stat": "max_mp",  "bonus": 80,  "cost": 3},
+        {"name": "Mana Tap",         "desc": "+20 Max MP",           "stats": {"max_mp": 20},  "cost": 1},
+        {"name": "Arcane Mind",      "desc": "+3 INT",               "stats": {"int": 3},   "cost": 1},
+        {"name": "Spell Mastery",    "desc": "+8 INT",               "stats": {"int": 8},   "cost": 2},
+        {"name": "Ley Lines",        "desc": "+40 Max MP",           "stats": {"max_mp": 40},  "cost": 2},
+        {"name": "Archmage Focus",   "desc": "+15 INT",              "stats": {"int": 15},  "cost": 3},
+        {"name": "Infinite Reservoir","desc": "+80 Max MP",          "stats": {"max_mp": 80},  "cost": 3},
     ],
     "Rogue": [
-        {"name": "Keen Eye",         "desc": "+3 DEX, +2 LCK",       "stat": "dex",     "bonus": 3,   "cost": 1},
-        {"name": "Shadow Veil",      "desc": "+5 DEX",               "stat": "dex",     "bonus": 5,   "cost": 1},
-        {"name": "Treasure Hunter",  "desc": "+5 LCK",               "stat": "lck",     "bonus": 5,   "cost": 2},
-        {"name": "Assassin's Mark",  "desc": "+8 DEX",               "stat": "dex",     "bonus": 8,   "cost": 2},
-        {"name": "Ghost Walk",       "desc": "+10 DEX, +5 LCK",      "stat": "dex",     "bonus": 10,  "cost": 3},
-        {"name": "Master of Shadows","desc": "+20 DEX",              "stat": "dex",     "bonus": 20,  "cost": 3},
+        {"name": "Keen Eye",         "desc": "+3 DEX, +2 LCK",       "stats": {"dex": 3, "lck": 2},   "cost": 1},
+        {"name": "Shadow Veil",      "desc": "+5 DEX",               "stats": {"dex": 5},   "cost": 1},
+        {"name": "Treasure Hunter",  "desc": "+5 LCK",               "stats": {"lck": 5},   "cost": 2},
+        {"name": "Assassin's Mark",  "desc": "+8 DEX",               "stats": {"dex": 8},   "cost": 2},
+        {"name": "Ghost Walk",       "desc": "+10 DEX, +5 LCK",      "stats": {"dex": 10, "lck": 5},  "cost": 3},
+        {"name": "Master of Shadows","desc": "+20 DEX",              "stats": {"dex": 20},  "cost": 3},
     ],
 }
 
@@ -51,27 +59,27 @@ PROFESSIONS = {
             "passive": "+25% DEF. Your presence is unbreakable.",
             "stat_bonus": {"max_hp": 40, "base_vit": 4},
             "skills": [
-                {"name": "Iron Wall",    "desc": "+8 VIT",             "stat": "vit",    "bonus": 8,  "cost": 1},
-                {"name": "Stalwart",     "desc": "+30 Max HP, +5 VIT", "stat": "max_hp", "bonus": 30, "cost": 2},
-                {"name": "Unbreakable",  "desc": "+80 Max HP",         "stat": "max_hp", "bonus": 80, "cost": 3},
+                {"name": "Iron Wall",    "desc": "+8 VIT",             "stats": {"vit": 8},  "cost": 1},
+                {"name": "Stalwart",     "desc": "+30 Max HP, +5 VIT", "stats": {"max_hp": 30, "vit": 5}, "cost": 2},
+                {"name": "Unbreakable",  "desc": "+80 Max HP",         "stats": {"max_hp": 80}, "cost": 3},
             ],
         },
         "Berserker": {
             "passive": "+50% ATK when HP below 30%.",
             "stat_bonus": {"base_str": 6, "max_hp": -20},
             "skills": [
-                {"name": "Bloodlust",    "desc": "+8 STR",  "stat": "str", "bonus": 8,  "cost": 1},
-                {"name": "Frenzy",       "desc": "+15 STR", "stat": "str", "bonus": 15, "cost": 2},
-                {"name": "War Incarnate","desc": "+25 STR", "stat": "str", "bonus": 25, "cost": 3},
+                {"name": "Bloodlust",    "desc": "+8 STR",  "stats": {"str": 8},  "cost": 1},
+                {"name": "Frenzy",       "desc": "+15 STR", "stats": {"str": 15}, "cost": 2},
+                {"name": "War Incarnate","desc": "+25 STR", "stats": {"str": 25}, "cost": 3},
             ],
         },
         "Champion": {
             "passive": "+10% ATK and DEF at all times.",
             "stat_bonus": {"base_str": 3, "base_vit": 3, "max_hp": 20},
             "skills": [
-                {"name": "Valor",        "desc": "+6 STR, +4 VIT", "stat": "str", "bonus": 6,  "cost": 1},
-                {"name": "Victor's Edge","desc": "+12 STR",         "stat": "str", "bonus": 12, "cost": 2},
-                {"name": "Grand Legacy", "desc": "+20 STR, +10 VIT","stat": "str", "bonus": 20, "cost": 3},
+                {"name": "Valor",        "desc": "+6 STR, +4 VIT", "stats": {"str": 6, "vit": 4},  "cost": 1},
+                {"name": "Victor's Edge","desc": "+12 STR",         "stats": {"str": 12}, "cost": 2},
+                {"name": "Grand Legacy", "desc": "+20 STR, +10 VIT","stats": {"str": 20, "vit": 10}, "cost": 3},
             ],
         },
     },
@@ -80,27 +88,27 @@ PROFESSIONS = {
             "passive": "+30% spell damage on all damage abilities.",
             "stat_bonus": {"base_int": 8, "max_mp": 30},
             "skills": [
-                {"name": "Overcharge",    "desc": "+8 INT",          "stat": "int", "bonus": 8,  "cost": 1},
-                {"name": "Arcane Surge",  "desc": "+15 INT, +20 MP", "stat": "int", "bonus": 15, "cost": 2},
-                {"name": "Transcendence", "desc": "+25 INT",          "stat": "int", "bonus": 25, "cost": 3},
+                {"name": "Overcharge",    "desc": "+8 INT",          "stats": {"int": 8},  "cost": 1},
+                {"name": "Arcane Surge",  "desc": "+15 INT, +20 MP", "stats": {"int": 15, "max_mp": 20}, "cost": 2},
+                {"name": "Transcendence", "desc": "+25 INT",          "stats": {"int": 25}, "cost": 3},
             ],
         },
         "Elementalist": {
             "passive": "30% chance to Burn (DoT) enemies on any ability hit.",
             "stat_bonus": {"base_int": 4, "max_mp": 50},
             "skills": [
-                {"name": "Attunement",     "desc": "+6 INT, +20 MP",  "stat": "int", "bonus": 6,  "cost": 1},
-                {"name": "Volatile Magic", "desc": "+12 INT, +30 MP", "stat": "int", "bonus": 12, "cost": 2},
-                {"name": "Avatar",         "desc": "+20 INT, +50 MP", "stat": "int", "bonus": 20, "cost": 3},
+                {"name": "Attunement",     "desc": "+6 INT, +20 MP",  "stats": {"int": 6, "max_mp": 20},  "cost": 1},
+                {"name": "Volatile Magic", "desc": "+12 INT, +30 MP", "stats": {"int": 12, "max_mp": 30}, "cost": 2},
+                {"name": "Avatar",         "desc": "+20 INT, +50 MP", "stats": {"int": 20, "max_mp": 50}, "cost": 3},
             ],
         },
         "Necromancer": {
             "passive": "+20% damage vs enemies below 50% HP.",
             "stat_bonus": {"base_int": 5, "max_hp": 15, "max_mp": 20},
             "skills": [
-                {"name": "Soul Tap",    "desc": "+6 INT, +25 MP",  "stat": "int", "bonus": 6,  "cost": 1},
-                {"name": "Life Drain",  "desc": "+12 INT, +30 HP", "stat": "int", "bonus": 12, "cost": 2},
-                {"name": "Lich Form",   "desc": "+20 INT, +60 HP", "stat": "int", "bonus": 20, "cost": 3},
+                {"name": "Soul Tap",    "desc": "+6 INT, +25 MP",  "stats": {"int": 6, "max_mp": 25},  "cost": 1},
+                {"name": "Life Drain",  "desc": "+12 INT, +30 HP", "stats": {"int": 12, "max_hp": 30}, "cost": 2},
+                {"name": "Lich Form",   "desc": "+20 INT, +60 HP", "stats": {"int": 20, "max_hp": 60}, "cost": 3},
             ],
         },
     },
@@ -109,27 +117,27 @@ PROFESSIONS = {
             "passive": "Death Mark deals 4× damage (5× on enemies below 40% HP).",
             "stat_bonus": {"base_dex": 5, "base_lck": 3},
             "skills": [
-                {"name": "Blade Mastery", "desc": "+8 DEX",           "stat": "dex", "bonus": 8,  "cost": 1},
-                {"name": "Predator",      "desc": "+12 DEX, +5 LCK",  "stat": "dex", "bonus": 12, "cost": 2},
-                {"name": "Shadow Lord",   "desc": "+20 DEX, +10 LCK", "stat": "dex", "bonus": 20, "cost": 3},
+                {"name": "Blade Mastery", "desc": "+8 DEX",           "stats": {"dex": 8},  "cost": 1},
+                {"name": "Predator",      "desc": "+12 DEX, +5 LCK",  "stats": {"dex": 12, "lck": 5}, "cost": 2},
+                {"name": "Shadow Lord",   "desc": "+20 DEX, +10 LCK", "stats": {"dex": 20, "lck": 10}, "cost": 3},
             ],
         },
         "Ranger": {
             "passive": "Flee always succeeds. +20% ATK on first strike each combat.",
             "stat_bonus": {"base_dex": 6, "base_lck": 4},
             "skills": [
-                {"name": "Eagle Eye",   "desc": "+6 DEX, +5 LCK",  "stat": "dex", "bonus": 6,  "cost": 1},
-                {"name": "Hunter",      "desc": "+12 DEX, +5 LCK", "stat": "dex", "bonus": 12, "cost": 2},
-                {"name": "Wind Runner", "desc": "+20 DEX, +10 LCK","stat": "dex", "bonus": 20, "cost": 3},
+                {"name": "Eagle Eye",   "desc": "+6 DEX, +5 LCK",  "stats": {"dex": 6, "lck": 5},  "cost": 1},
+                {"name": "Hunter",      "desc": "+12 DEX, +5 LCK", "stats": {"dex": 12, "lck": 5}, "cost": 2},
+                {"name": "Wind Runner", "desc": "+20 DEX, +10 LCK","stats": {"dex": 20, "lck": 10}, "cost": 3},
             ],
         },
         "Trickster": {
             "passive": "Poison lasts +2 extra turns and deals +50% DoT damage.",
             "stat_bonus": {"base_dex": 3, "base_int": 4, "base_lck": 3},
             "skills": [
-                {"name": "Venom Craft",   "desc": "+6 DEX, +4 INT",  "stat": "dex", "bonus": 6,  "cost": 1},
-                {"name": "Toxic Mastery", "desc": "+10 DEX, +6 INT", "stat": "dex", "bonus": 10, "cost": 2},
-                {"name": "Poison Adept",  "desc": "+15 DEX, +10 INT","stat": "dex", "bonus": 15, "cost": 3},
+                {"name": "Venom Craft",   "desc": "+6 DEX, +4 INT",  "stats": {"dex": 6, "int": 4},  "cost": 1},
+                {"name": "Toxic Mastery", "desc": "+10 DEX, +6 INT", "stats": {"dex": 10, "int": 6}, "cost": 2},
+                {"name": "Poison Adept",  "desc": "+15 DEX, +10 INT","stats": {"dex": 15, "int": 10}, "cost": 3},
             ],
         },
     },
@@ -163,6 +171,7 @@ class Player:
         self.equipment = {"weapon": None, "armor": None}
         self.skills_learned = []
 
+        self._stats_version = STATS_VERSION
         self.buffs   = {}
         self.debuffs = {}
         self.dot     = 0
@@ -188,37 +197,34 @@ class Player:
         self.steps    = 0
 
     # ── Derived Stats ──────────────────────────────────────────────────────────
+    def skill_bonus(self, stat):
+        """Sum of `stat` granted by every learned skill (class tree + profession)."""
+        return sum(skill_stats(sk).get(stat, 0)
+                   for sk in self.skills_learned + self.prof_skills_learned)
+
+    def _temp(self, stat):
+        return sum(b["amount"] for b in self.temp_buffs if b["stat"] in (stat, "all"))
+
     @property
     def str(self):
-        bonus = sum(s["bonus"] for s in self.skills_learned if s["stat"] == "str")
-        prof_bonus = sum(s["bonus"] for s in self.prof_skills_learned if s["stat"] == "str")
         eq_bonus = self.equipment["weapon"].stats.get("str", 0) if self.equipment["weapon"] else 0
-        temp = sum(b["amount"] for b in self.temp_buffs if b["stat"] in ("str", "all"))
-        return self.base_str + bonus + prof_bonus + eq_bonus + temp
+        return self.base_str + self.skill_bonus("str") + eq_bonus + self._temp("str")
 
     @property
     def dex(self):
-        bonus = sum(s["bonus"] for s in self.skills_learned if s["stat"] == "dex")
-        prof_bonus = sum(s["bonus"] for s in self.prof_skills_learned if s["stat"] == "dex")
-        return self.base_dex + bonus + prof_bonus
+        return self.base_dex + self.skill_bonus("dex")
 
     @property
     def int(self):
-        bonus = sum(s["bonus"] for s in self.skills_learned if s["stat"] == "int")
-        prof_bonus = sum(s["bonus"] for s in self.prof_skills_learned if s["stat"] == "int")
-        return self.base_int + bonus + prof_bonus
+        return self.base_int + self.skill_bonus("int")
 
     @property
     def vit(self):
-        prof_bonus = sum(s["bonus"] for s in self.prof_skills_learned if s["stat"] == "vit")
-        temp = sum(b["amount"] for b in self.temp_buffs if b["stat"] in ("vit", "all"))
-        return self.base_vit + prof_bonus + temp
+        return self.base_vit + self.skill_bonus("vit") + self._temp("vit")
 
     @property
     def lck(self):
-        bonus = sum(s["bonus"] for s in self.skills_learned if s["stat"] == "lck")
-        prof_bonus = sum(s["bonus"] for s in self.prof_skills_learned if s["stat"] == "lck")
-        return self.base_lck + bonus + prof_bonus
+        return self.base_lck + self.skill_bonus("lck")
 
     @property
     def attack(self):
@@ -243,11 +249,8 @@ class Player:
 
     @property
     def defense(self):
-        base = int(self.base_vit * 0.8)
+        base = int(self.vit * 0.8)
         arm  = self.equipment["armor"].stats.get("def", 0) if self.equipment["armor"] else 0
-        vit_temp = sum(b["amount"] for b in self.temp_buffs if b["stat"] in ("vit", "all"))
-        prof_vit = sum(s["bonus"] for s in self.prof_skills_learned if s["stat"] == "vit")
-        base += int((vit_temp + prof_vit) * 0.8)
         knight_bonus = int((base + arm) * 0.25) if self.profession == "Knight" else 0
         champion_bonus = int((base + arm) * 0.10) if self.profession == "Champion" else 0
         berserk_pen = (base + arm) // 2 if "Berserk" in self.buffs else 0
@@ -291,29 +294,25 @@ class Player:
         return [s for s in SKILL_TREE[self.player_class] if s["name"] not in learned_names]
 
     def learn_skill(self, skill):
+        return self._learn(skill, self.skills_learned)
+
+    def _learn(self, skill, learned):
+        """Stats are summed from learned skills on access; only max HP/MP are stored."""
         if self.skill_points < skill["cost"]:
             return False, "Not enough skill points."
         self.skill_points -= skill["cost"]
-        self.skills_learned.append(skill)
-        stat = skill["stat"]
-        bonus = skill["bonus"]
-        if stat == "max_hp":
-            self.max_hp += bonus
-            self.hp = min(self.hp + bonus, self.max_hp)
-        elif stat == "max_mp":
-            self.max_mp += bonus
-            self.mp = min(self.mp + bonus, self.max_mp)
-        elif stat == "str":
-            self.base_str += bonus
-        elif stat == "dex":
-            self.base_dex += bonus
-        elif stat == "int":
-            self.base_int += bonus
-        elif stat == "vit":
-            self.base_vit += bonus
-        elif stat == "lck":
-            self.base_lck += bonus
+        learned.append(skill)
+        stats = skill_stats(skill)
+        self._grow_pools(stats.get("max_hp", 0), stats.get("max_mp", 0))
         return True, f"Learned {skill['name']}!"
+
+    def _grow_pools(self, hp, mp):
+        if hp:
+            self.max_hp += hp
+            self.hp = max(1, min(self.hp + hp, self.max_hp))
+        if mp:
+            self.max_mp += mp
+            self.mp = max(0, min(self.mp + mp, self.max_mp))
 
     # ── Combat Professions ─────────────────────────────────────────────────────
     def choose_profession(self, prof_name):
@@ -352,19 +351,7 @@ class Player:
         return [s for s in p.get("skills", []) if s["name"] not in learned_names]
 
     def learn_prof_skill(self, skill):
-        if self.skill_points < skill["cost"]:
-            return False, "Not enough skill points."
-        self.skill_points -= skill["cost"]
-        self.prof_skills_learned.append(skill)
-        stat = skill["stat"]
-        bonus = skill["bonus"]
-        if stat == "max_hp":
-            self.max_hp += bonus
-            self.hp = min(self.hp + bonus, self.max_hp)
-        elif stat == "max_mp":
-            self.max_mp += bonus
-            self.mp = min(self.mp + bonus, self.max_mp)
-        return True, f"Learned {skill['name']}!"
+        return self._learn(skill, self.prof_skills_learned)
 
     # ── Abilities ──────────────────────────────────────────────────────────────
     def get_abilities(self):
@@ -381,8 +368,32 @@ class Player:
         old = self.equipment[item.item_type]
         if old:
             self.inventory.append(old)
+            self._grow_pools(-old.stats.get("hp", 0), 0)
         self.equipment[item.item_type] = item
+        self._grow_pools(item.stats.get("hp", 0), 0)
         return True, f"Equipped {item.name}."
+
+    def upgrade_equipped(self, slot):
+        """Spend gold + bars to raise the equipped item's upgrade level by one."""
+        from items import upgrade_cost
+        item = self.equipment.get(slot)
+        if not item:
+            return False, "Nothing equipped there."
+        cost = upgrade_cost(item)
+        if cost is None:
+            return False, f"{item.name} is already fully upgraded."
+        gold, bar, qty = cost
+        if self.gold < gold:
+            return False, f"Upgrading costs {gold}g (you have {self.gold}g)."
+        if self.resources.get(bar, 0) < qty:
+            return False, f"Upgrading needs {qty}× {bar} (you have {self.resources.get(bar, 0)}). Smith them at the Craft menu."
+        self.gold -= gold
+        self.remove_resource(bar, qty)
+        old_hp = item.stats.get("hp", 0)
+        item.apply_upgrade()
+        self._grow_pools(item.stats.get("hp", 0) - old_hp, 0)
+        gains = ", ".join(f"{k.upper()} {v}" for k, v in item.stats.items())
+        return True, f"The smith reforges it: {item.name} ({gains})."
 
     def use_consumable(self, item):
         if item.item_type != "consumable":
@@ -503,6 +514,35 @@ class Player:
         # debuffs used to be an unused {} on old saves; make sure it exists.
         d.setdefault("debuffs", {})
         self.__dict__.update(d)
+        if d.get("_stats_version", 1) < STATS_VERSION:
+            self._migrate_stats_v2()
+
+    def _migrate_stats_v2(self):
+        """Saves before v2: class-tree STR/DEX/INT/VIT/LCK skills were added to base_* AND
+        summed again on access (double counted); second stats in descriptions like
+        "+8 Max HP, +2 VIT" were never applied; armor HP was ignored."""
+        for sk in self.skills_learned:
+            if sk.get("stat") in ("str", "dex", "int", "vit", "lck"):
+                attr = "base_" + sk["stat"]
+                setattr(self, attr, getattr(self, attr) - sk["bonus"])
+        current = {sk["name"]: sk for tree in SKILL_TREE.values() for sk in tree}
+        for profs in PROFESSIONS.values():
+            for prof in profs.values():
+                current.update({sk["name"]: sk for sk in prof["skills"]})
+        for learned in (self.skills_learned, self.prof_skills_learned):
+            for i, sk in enumerate(learned):
+                new = current.get(sk["name"])
+                if new is None or "stats" in sk:
+                    continue
+                already = sk["stat"]  # the only stat old code applied to max HP/MP
+                stats = skill_stats(new)
+                self._grow_pools(stats.get("max_hp", 0) if already != "max_hp" else 0,
+                                 stats.get("max_mp", 0) if already != "max_mp" else 0)
+                learned[i] = new
+        armor = self.equipment.get("armor")
+        if armor:
+            self._grow_pools(armor.stats.get("hp", 0), 0)
+        self._stats_version = STATS_VERSION
 
     # ── Gathering / Crafting skills ────────────────────────────────────────────
     def add_resource(self, name, qty=1):

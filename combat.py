@@ -15,6 +15,14 @@ STUN_IMMUNITY_TURNS = 2       # after being stunned, the player can't be stunned
 SHADOW_STEP_CRIT_BONUS = 0.25
 
 
+def flee_chance(player, enemy):
+    """Faster characters escape more often; bosses are harder to shake."""
+    chance = 0.40 + player.speed * 0.008
+    if enemy.is_boss:
+        chance -= 0.20
+    return max(0.10, min(0.90, chance))
+
+
 def hit_player(player, dmg, clog, defending=False):
     """Apply incoming enemy damage after Evasion / Defend / Mana Shield. Returns HP lost."""
     if 'Evasion' in player.buffs:
@@ -297,8 +305,7 @@ def do_combat_turn(state, action, ability_idx=None, item_idx=None):
         if player.profession == 'Ranger':
             clog('warning', 'Ranger instincts guide you to safety!')
             return 'fled'
-        flee_chance = 30 + int(player.dex) + int(player.speed * 1.5)
-        if random.randint(1, 100) < flee_chance - enemy.atk:
+        if random.random() < flee_chance(player, enemy):
             clog('warning', 'You fled from the battle!')
             return 'fled'
         clog('danger', "Couldn't flee! The enemy blocks your escape!")

@@ -24,7 +24,27 @@ CONSUMABLE_NAMES = [
 ]
 
 
+# Gear upgrades (+1 … +5) at the forge: gold plus smithed bars, +12% base stats per level.
+UPGRADE_MAX = 5
+UPGRADE_STAT_GAIN = 0.12
+UPGRADE_BARS = {1: "Bronze Bar", 2: "Iron Bar", 3: "Steel Bar", 4: "Mithril Bar", 5: "Adamantite Bar"}
+UPGRADE_BAR_QTY = 2
+
+
+def upgrade_cost(item):
+    """(gold, bar name, bar qty) for the next upgrade, or None at max."""
+    n = item.upgrade + 1
+    if item.item_type not in ("weapon", "armor") or n > UPGRADE_MAX:
+        return None
+    return 60 * n * n, UPGRADE_BARS[n], UPGRADE_BAR_QTY
+
+
 class Item:
+    # Class-level defaults so items pickled before upgrades existed still load.
+    upgrade = 0
+    base_stats = None
+    base_name = None
+
     def __init__(self, name, item_type, rarity, value, stats=None, effect=None, effect_value=0, effect_duration=0):
         self.name = name
         self.item_type = item_type   # "weapon", "armor", "consumable"
@@ -34,6 +54,15 @@ class Item:
         self.effect = effect         # for consumables
         self.effect_value = effect_value
         self.effect_duration = effect_duration  # turns for temp buffs
+
+    def apply_upgrade(self):
+        if self.base_stats is None:
+            self.base_stats, self.base_name = dict(self.stats), self.name
+        self.upgrade += 1
+        mult = 1 + UPGRADE_STAT_GAIN * self.upgrade
+        self.stats = {k: max(v + self.upgrade, int(round(v * mult))) for k, v in self.base_stats.items()}
+        self.name = f"{self.base_name} +{self.upgrade}"
+        self.value = int(self.value * 1.25)
 
     def stat_string(self):
         if not self.stats:
