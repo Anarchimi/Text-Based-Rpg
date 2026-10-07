@@ -444,6 +444,7 @@ def do_combat_turn(state, action, ability_idx=None, item_idx=None):
         if 0 <= item_idx < len(consumables) and consumables[item_idx].effect == 'smoke_escape':
             if enemy.is_final:
                 clog('danger', 'There is no escaping this fight.')
+                return 'continue'
             else:
                 player.inventory.remove(consumables[item_idx])
                 clog('warning', 'You loose a Smoke Arrow and slip away in the haze!')
@@ -451,6 +452,8 @@ def do_combat_turn(state, action, ability_idx=None, item_idx=None):
         elif 0 <= item_idx < len(consumables):
             ok, text = player.use_consumable(consumables[item_idx])
             clog('heal' if ok else 'danger', text)
+            if not ok:  # nothing happened (e.g. a revive item, elixir cap): no free enemy hit
+                return 'continue'
     elif action == 'flee':
         if player.profession == 'Ranger':
             clog('warning', 'Ranger instincts guide you to safety!')

@@ -84,7 +84,8 @@ class Item:
             self.base_stats, self.base_name = dict(self.stats), self.name
         self.upgrade += 1
         mult = 1 + UPGRADE_STAT_GAIN * self.upgrade
-        self.stats = {k: max(v + self.upgrade, int(round(v * mult))) for k, v in self.base_stats.items()}
+        self.stats = {k: max(v + self.upgrade, int(round(v * mult))) if v > 0 else v  # penalties stay penalties
+                      for k, v in self.base_stats.items()}
         self.name = f"{self.base_name} +{self.upgrade}"
         self.value = int(self.value * 1.25)
 
