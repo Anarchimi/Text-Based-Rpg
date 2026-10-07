@@ -1,0 +1,44 @@
+  {% set p = state.player %}
+  {% set pick = state.alchemy_pick or [] %}
+  {% set j = p.alchemy_journal %}
+  <form method="post" action="/action"><button class="back-btn" name="action" value="back">← Back to crafting</button></form>
+  <p class="page-title">Alchemy Bench</p>
+
+  {% if state.messages %}
+  <div class="msgs">{% for m in state.messages %}<div class="msg msg-{{ m.kind }}">{{ m.text }}</div>{% endfor %}</div>
+  {% endif %}
+
+  <div class="card-head">Journal · {{ j.recipes | length }}/{{ trades.ALCHEMY_RECIPES | length }} recipes</div>
+  <div class="card">
+    {% for name, pair in j.recipes.items() %}
+    {% set ready = p.resources.get(pair[0], 0) > 0 and p.resources.get(pair[1], 0) > 0 %}
+    <div class="item-row">
+      <div class="item-info"><div class="item-name">{{ name }}</div>
+        <div class="item-meta">{{ pair[0] }} + {{ pair[1] }}</div></div>
+      <div class="item-actions"><form method="post" action="/action">
+        <button class="btn-sm {{ 'btn-green' if ready else 'btn-dim' }}" name="action" value="alc_brew_{{ name }}" {% if not ready %}disabled{% endif %}>Brew</button>
+      </form></div>
+    </div>
+    {% else %}
+    <div class="item-meta">No recipes yet. Mix two ingredients whose main properties belong together.</div>
+    {% endfor %}
+    {% for name, h in j.hints.items() if name not in j.recipes %}<div class="item-meta hint">💡 {{ h }}</div>{% endfor %}
+  </div>
+
+  <div class="card-head">Experiment · pick two</div>
+  <form method="post" action="/action">
+    <div class="card">
+      {% for name in trades.owned_ingredients(p) %}
+      {% set props = trades.known_properties(p, name) %}
+      <button class="ingredient {{ 'btn-cyan' if name in pick else '' }}" name="action" value="alc_pick_{{ name }}">
+        {{ '✓ ' if name in pick else '' }}{{ name }} ×{{ p.resources.get(name, 0) }}
+        <span class="ability-desc">{{ props[0] }} · {{ props[1] }}</span>
+      </button>
+      {% else %}
+      <div class="item-meta">No ingredients. Gather herbs or defeat Vampires, Wyverns, Dragons and shadow-creatures for reagents.</div>
+      {% endfor %}
+    </div>
+    <button class="{{ 'btn-yellow' if pick | length == 2 else 'btn-dim' }} btn-center" name="action" value="alc_mix" {% if pick | length != 2 %}disabled{% endif %}>
+      ⚗ Mix {{ pick | join(' + ') if pick else '…' }}</button>
+  </form>
+  <div class="item-meta">Main properties are revealed at Herbalism 5, secondary at 15. Mixing uses one of each.</div>

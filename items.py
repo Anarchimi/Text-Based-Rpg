@@ -1,14 +1,6 @@
 import random
 
 RARITIES = ["Common", "Uncommon", "Rare", "Epic", "Legendary"]
-RARITY_COLORS = {
-    "Common":    "",
-    "Uncommon":  "\033[32m",
-    "Rare":      "\033[34m",
-    "Epic":      "\033[35m",
-    "Legendary": "\033[33m",
-}
-RESET = "\033[0m"
 
 RARITY_WEIGHTS = [55, 25, 12, 6, 2]
 
@@ -32,7 +24,51 @@ CONSUMABLE_NAMES = [
 ]
 
 
+# Gear upgrades (+1 … +5) at the forge: gold plus smithed bars, +12% base stats per level.
+UPGRADE_MAX = 5
+UPGRADE_STAT_GAIN = 0.12
+UPGRADE_BARS = {1: "Bronze Bar", 2: "Iron Bar", 3: "Steel Bar", 4: "Mithril Bar", 5: "Adamantite Bar"}
+UPGRADE_BAR_QTY = 2
+
+
+# Tempering (Smithing 15, crafted gear only, once per item): name -> (slot, multipliers, flat changes)
+TEMPERS = {
+    "Hone":          ("weapon", {"atk": 1.15}, {}),
+    "Reinforce":     ("armor",  {"def": 1.15}, {}),
+    "Heavy Plating": ("armor",  {"def": 1.30}, {"spd": -4}),
+}
+TEMPER_TEXT = {
+    "Hone": "+15% ATK",
+    "Reinforce": "+15% DEF",
+    "Heavy Plating": "+30% DEF, −4 SPD",
+}
+
+
+def upgrade_cost(item, player=None):
+    """(gold, bar name, bar qty) for the next upgrade, or None at max. Blacksmiths pay less."""
+    n = item.upgrade + 1
+    if item.item_type not in GEAR_SLOTS or n > UPGRADE_MAX:
+        return None
+    gold, qty = 60 * n * n, UPGRADE_BAR_QTY
+    if player is not None and getattr(player, "trade_profession", None) == "Blacksmith":
+        gold, qty = int(gold * 0.7), max(1, qty - 1)
+    return gold, UPGRADE_BARS[n], qty
+
+
 class Item:
+    # Class-level defaults so items pickled before upgrades existed still load.
+    upgrade = 0
+    base_stats = None
+    base_name = None
+    legendary = None   # key of LEGENDARY_EFFECTS
+    category = None    # "food" for cooked consumables (Fisher perk), else potion/other
+    crafted = False    # made at a workshop (trades.py) rather than looted/bought
+    material = None    # crafting material, e.g. "Steel" (forged) or "Yew" (fletched)
+    kind = None        # e.g. "Sword", "Plate", "Longbow" — what the crafted item actually is
+    temper = None      # one-time Tempering applied (TEMPERS key), crafted gear only
+    meal = None        # MEALS key for cooked meals (category "meal")
+    profile = None     # fletched weapons: "Power" / "Speed" / "Precision"
+
     def __init__(self, name, item_type, rarity, value, stats=None, effect=None, effect_value=0, effect_duration=0):
         self.name = name
         self.item_type = item_type   # "weapon", "armor", "consumable"
@@ -43,9 +79,29 @@ class Item:
         self.effect_value = effect_value
         self.effect_duration = effect_duration  # turns for temp buffs
 
-    def colored_name(self):
-        color = RARITY_COLORS.get(self.rarity, "")
-        return f"{color}[{self.rarity}] {self.name}{RESET}"
+    def apply_upgrade(self):
+        if self.base_stats is None:
+            self.base_stats, self.base_name = dict(self.stats), self.name
+        self.upgrade += 1
+        mult = 1 + UPGRADE_STAT_GAIN * self.upgrade
+        self.stats = {k: max(v + self.upgrade, int(round(v * mult))) for k, v in self.base_stats.items()}
+        self.name = f"{self.base_name} +{self.upgrade}"
+        self.value = int(self.value * 1.25)
+
+    def apply_temper(self, name):
+        """One-time Tempering: reshapes the item's *base* stats, so +1…+5 upgrades build on it."""
+        _, mults, flat = TEMPERS[name]
+        base = self.base_stats if self.base_stats is not None else self.stats
+        for stat, m in mults.items():
+            if stat in base:
+                base[stat] = int(round(base[stat] * m))
+        for stat, v in flat.items():
+            base[stat] = base.get(stat, 0) + v
+        if self.base_stats is not None and self.upgrade:
+            mult = 1 + UPGRADE_STAT_GAIN * self.upgrade
+            self.stats = {k: max(v + self.upgrade, int(round(v * mult))) if v > 0 else v
+                          for k, v in self.base_stats.items()}
+        self.temper = name
 
     def stat_string(self):
         if not self.stats:
@@ -54,7 +110,7 @@ class Item:
         return " | ".join(parts)
 
     def __str__(self):
-        base = self.colored_name()
+        base = f"[{self.rarity}] {self.name}"
         stats = self.stat_string()
         return f"{base}" + (f" ({stats})" if stats else "") + f" [Worth: {self.value}g]"
 
@@ -68,72 +124,216 @@ def roll_rarity(bonus=0):
     return RARITIES[idx]
 
 
+def loot_rarity_bonus(level, luck=0):
+    """Higher level and luck shift rarity rolls upward (LCK used to do nothing here)."""
+    return level // 5 + max(0, luck) // 10
+
+
 def rarity_multiplier(rarity):
     return [1.0, 1.4, 2.0, 3.0, 5.0][RARITIES.index(rarity)]
 
 
-def generate_weapon(player_class=None, level=1, rarity=None):
+# ── Gear: slots, bonus stats ("affixes"), legendary effects ────────────────────
+GEAR_SLOTS = ("weapon", "armor", "accessory")
+AFFIX_COUNT = {"Common": 0, "Uncommon": 1, "Rare": 2, "Epic": 3, "Legendary": 3}
+# Which bonus stats can roll on each slot (weights).
+AFFIX_POOL = {
+    "weapon":    {"str": 3, "dex": 3, "int": 3, "crit": 3, "spd": 2, "lck": 1},
+    "armor":     {"vit": 3, "hp": 3, "str": 2, "dex": 2, "int": 2, "mp": 2},
+    "accessory": {"str": 2, "dex": 2, "int": 2, "vit": 2, "lck": 2, "hp": 2, "mp": 2, "crit": 2, "spd": 1},
+}
+CLASS_MAIN_STAT = {"Warrior": "str", "Mage": "int", "Rogue": "dex"}
+STAT_LABELS = {"atk": "ATK", "def": "DEF", "spd": "SPD", "hp": "HP", "mp": "MP", "str": "STR", "dex": "DEX",
+               "int": "INT", "vit": "VIT", "lck": "LCK", "crit": "% CRIT"}
+
+# Legendary items carry one of these. Each is implemented where its name is
+# checked (combat.py / Player) and has a test proving it changes combat.
+LEGENDARY_EFFECTS = {
+    "Vampiric":    ("of Hunger",    "Heal 10% of the damage you deal."),
+    "Thorns":      ("of Thorns",    "Attackers take 20% of the damage they deal you."),
+    "Executioner": ("of the Headsman", "+25% damage to enemies below 35% HP."),
+    "Arcane Flow": ("of the Wellspring", "Abilities cost 25% less MP."),
+    "Bulwark":     ("of the Bastion", "Defending also restores 10% of max HP."),
+    "Second Wind": ("of the Phoenix", "Once per fight, survive a lethal blow with 1 HP."),
+}
+
+ACCESSORY_PREFIXES = ["Silver", "Gold", "Bone", "Jade", "Obsidian", "Moonlit", "Runed", "Ember", "Frost", "Void"]
+ACCESSORY_NAMES    = ["Ring", "Amulet", "Charm", "Talisman", "Pendant", "Signet"]
+
+
+def _affix_value(stat, level, rarity):
+    r = 1 + 0.25 * RARITIES.index(rarity)
+    base = {
+        "str": 2 + level * 0.6, "dex": 2 + level * 0.6, "int": 2 + level * 0.6,
+        "vit": 2 + level * 0.5, "lck": 2 + level * 0.4,
+        "hp": 8 + level * 4, "mp": 5 + level * 3,
+        "spd": 1 + level * 0.25, "crit": 2 + level * 0.15,
+    }[stat]
+    return max(1, int(base * r * random.uniform(0.7, 1.15)))
+
+
+def roll_affixes(slot, level, rarity, player_class=None, count=None):
+    """Distinct bonus stats for an item; the class's main stat is 3× as likely."""
+    pool = dict(AFFIX_POOL[slot])
+    main = CLASS_MAIN_STAT.get(player_class)
+    if main in pool:
+        pool[main] *= 3
+    n = AFFIX_COUNT[rarity] if count is None else count
+    out = {}
+    while pool and len(out) < n:
+        stat = random.choices(list(pool), weights=list(pool.values()))[0]
+        del pool[stat]
+        out[stat] = _affix_value(stat, level, rarity)
+    return out
+
+
+def _finish_gear(item, slot, level, rarity, player_class, affix_count=None):
+    for stat, val in roll_affixes(slot, level, rarity, player_class, affix_count).items():
+        item.stats[stat] = item.stats.get(stat, 0) + val
+    if rarity == "Legendary":
+        item.legendary = random.choice(list(LEGENDARY_EFFECTS))
+        item.name = f"{item.name} {LEGENDARY_EFFECTS[item.legendary][0]}"
+    item.value = int(item.value * (1 + 0.15 * len(item.stats)))
+    return item
+
+
+def generate_weapon(player_class=None, level=1, rarity=None, luck=0):
     if rarity is None:
-        rarity = roll_rarity(level // 5)
+        rarity = roll_rarity(loot_rarity_bonus(level, luck))
     mult = rarity_multiplier(rarity)
-    classes = list(WEAPON_NAMES.keys())
-    cls = player_class if player_class in WEAPON_NAMES else random.choice(classes)
-    prefix = random.choice(WEAPON_PREFIXES)
-    wname  = random.choice(WEAPON_NAMES[cls])
-    name   = f"{prefix} {wname}"
+    cls = player_class if player_class in WEAPON_NAMES else random.choice(list(WEAPON_NAMES))
+    name = f"{random.choice(WEAPON_PREFIXES)} {random.choice(WEAPON_NAMES[cls])}"
     base_atk = int((5 + level * 2) * mult)
-    stats = {"atk": base_atk}
-    if random.random() < 0.3:
-        stats["spd"] = random.randint(1, int(3 * mult))
-    value = int(base_atk * 3 * mult)
-    return Item(name, "weapon", rarity, value, stats)
+    item = Item(name, "weapon", rarity, int(base_atk * 3 * mult), {"atk": base_atk})
+    return _finish_gear(item, "weapon", level, rarity, player_class)
 
 
-def generate_armor(level=1, rarity=None):
+def generate_armor(level=1, rarity=None, player_class=None, luck=0):
     if rarity is None:
-        rarity = roll_rarity(level // 5)
+        rarity = roll_rarity(loot_rarity_bonus(level, luck))
     mult = rarity_multiplier(rarity)
-    prefix = random.choice(ARMOR_PREFIXES)
-    aname  = random.choice(ARMOR_NAMES)
-    name   = f"{prefix} {aname}"
+    name = f"{random.choice(ARMOR_PREFIXES)} {random.choice(ARMOR_NAMES)}"
     base_def = int((4 + level * 2) * mult)
-    stats = {"def": base_def}
-    if random.random() < 0.3:
-        stats["hp"] = random.randint(5, int(15 * mult))
-    value = int(base_def * 5 * mult)
-    return Item(name, "armor", rarity, value, stats)
+    item = Item(name, "armor", rarity, int(base_def * 5 * mult), {"def": base_def})
+    return _finish_gear(item, "armor", level, rarity, player_class)
+
+
+# ── Forged gear (Smithing workshop) ────────────────────────────────────────────
+# Each metal: (item level it forges at, sale value base, bonus trait per slot).
+METALS = {
+    "Bronze":     (3,  20,  {"weapon": {},                     "armor": {}}),
+    "Iron":       (6,  40,  {"weapon": {"main": 2},             "armor": {"vit": 2}}),
+    "Steel":      (9,  70,  {"weapon": {"main": 4},             "armor": {"vit": 4}}),
+    "Mithril":    (13, 120, {"weapon": {"spd": 4},             "armor": {"spd": 3}}),
+    "Adamantite": (17, 180, {"weapon": {"main": 6},             "armor": {"vit": 8, "spd": -2}}),
+    "Dragon":     (21, 260, {"weapon": {"main": 6, "hp": 20},   "armor": {"vit": 6, "hp": 40}}),
+}
+SMITHED_WEAPON = {"Warrior": "Sword", "Mage": "Scepter", "Rogue": "Dagger"}
+METAL_TRAIT_TEXT = {"Bronze": "basic", "Iron": "sturdy", "Steel": "strong (+main stat)", "Mithril": "light (+SPD)",
+                    "Adamantite": "heavy (+VIT, −SPD)", "Dragon": "dragonforged (+HP)"}
+
+
+def forge_item(slot, metal, rarity, player_class=None):
+    """A real smithed weapon or armor: base stat from the metal's level and the rolled quality
+    (rarity), plus the metal's trait and the usual bonus stats for that rarity."""
+    level, value_base, traits = METALS[metal]
+    mult = rarity_multiplier(rarity)
+    if slot == "weapon":
+        kind = SMITHED_WEAPON.get(player_class, "Sword")
+        stats = {"atk": int((5 + level * 2) * mult)}
+    else:
+        kind = "Plate"
+        stats = {"def": int((4 + level * 2) * mult)}
+    for stat, v in traits[slot].items():
+        stat = CLASS_MAIN_STAT.get(player_class, "str") if stat == "main" else stat  # weapons feed your class
+        stats[stat] = stats.get(stat, 0) + v
+    item = Item(f"{metal} {kind}", slot, rarity, 0, stats)
+    _finish_gear(item, slot, level, rarity, player_class)
+    item.crafted, item.material, item.kind = True, metal, kind
+    item.value = int(value_base * (1 + 0.25 * RARITIES.index(rarity)))  # material-based, not loot prices
+    return item
+
+
+# ── Fletched weapons (Fletching workshop) ──────────────────────────────────────
+# Wood: (item level, sale value base, trait name, trait stats). The player picks a profile.
+WOODS = {
+    "Normal": (2,  15,  "plain",    {}),
+    "Oak":    (5,  30,  "sturdy",   {"hp": 15}),
+    "Willow": (8,  50,  "flexible", {"spd": 3}),
+    "Maple":  (12, 80,  "balanced", {"crit": 3}),
+    "Yew":    (16, 130, "powerful", {"atk_pct": 10}),
+    "Elder":  (21, 200, "mystic",   {"main": 6}),
+}
+LOG_WOOD = {f"{w} Logs": w for w in WOODS}
+PROFILES = {  # name: (ATK multiplier, flat stats, description)
+    "Power":     (1.25, {"spd": -3},  "+25% ATK, −3 SPD"),
+    "Speed":     (0.85, {"spd": 6},   "−15% ATK, +6 SPD"),
+    "Precision": (1.00, {"crit": 6},  "+6% crit"),
+}
+
+
+def fletch_item(profile, wood, kind, rarity, player_class=None):
+    """A real fletched weapon: wood level + rolled quality, the chosen stat profile and the wood's trait.
+    Mages turn any recipe into a staff."""
+    level, value_base, _, trait = WOODS[wood]
+    kind = "Staff" if player_class == "Mage" else kind
+    atk_mult, flat, _ = PROFILES[profile]
+    atk = (5 + level * 2) * rarity_multiplier(rarity) * atk_mult * (1 + trait.get("atk_pct", 0) / 100)
+    stats = {"atk": int(atk)}
+    for stat, v in list(flat.items()) + [(k, v) for k, v in trait.items() if k != "atk_pct"]:
+        stat = CLASS_MAIN_STAT.get(player_class, "dex") if stat == "main" else stat
+        stats[stat] = stats.get(stat, 0) + v
+    item = Item(f"{wood} {kind}" if wood != "Normal" else f"Wooden {kind}", "weapon", rarity, 0, stats)
+    _finish_gear(item, "weapon", level, rarity, player_class)
+    item.crafted, item.material, item.kind, item.profile = True, wood, kind, profile
+    item.value = int(value_base * (1 + 0.25 * RARITIES.index(rarity)))
+    return item
+
+
+def generate_accessory(level=1, rarity=None, player_class=None, luck=0):
+    """Accessories have no base stat — only bonus stats (one more than other gear)."""
+    if rarity is None:
+        rarity = roll_rarity(loot_rarity_bonus(level, luck))
+    name = f"{random.choice(ACCESSORY_PREFIXES)} {random.choice(ACCESSORY_NAMES)}"
+    item = Item(name, "accessory", rarity, int((20 + level * 6) * rarity_multiplier(rarity)), {})
+    return _finish_gear(item, "accessory", level, rarity, player_class, AFFIX_COUNT[rarity] + 1)
+
+
+# Prices for consumables whose effect value isn't a sensible price
+# (permanent stats and auto-revive used to cost 10g and 5g).
+CONSUMABLE_PRICES = {"buff_str": 400, "buff_int": 400, "revive": 250, "cure": 15}
 
 
 def generate_consumable():
     c = random.choice(CONSUMABLE_NAMES)
     name, effect, eff_val = c
-    value = max(5, eff_val * 2)
+    value = CONSUMABLE_PRICES.get(effect, max(5, eff_val * 2))
     return Item(name, "consumable", "Common", value, effect=effect, effect_value=eff_val)
 
 
-def generate_loot(level=1, luck=0, count=None):
+def generate_loot(level=1, luck=0, count=None, player_class=None):
     if count is None:
         count = random.randint(0, 3)
     items = []
     for _ in range(count):
-        roll = random.random() + luck * 0.05
+        roll = random.random()
         if roll < 0.4:
             items.append(generate_consumable())
-        elif roll < 0.7:
-            items.append(generate_weapon(level=level))
+        elif roll < 0.65:
+            items.append(generate_weapon(player_class, level, luck=luck))
+        elif roll < 0.88:
+            items.append(generate_armor(level, player_class=player_class, luck=luck))
         else:
-            items.append(generate_armor(level=level))
+            items.append(generate_accessory(level, player_class=player_class, luck=luck))
     return items
 
 
 SHOP_STOCK_SIZE = 6
 
-def generate_shop_stock(level=1):
-    stock = []
-    for _ in range(2):
-        stock.append(generate_weapon(level=level))
-    for _ in range(2):
-        stock.append(generate_armor(level=level))
-    for _ in range(SHOP_STOCK_SIZE - 4):
+def generate_shop_stock(level=1, player_class=None):
+    stock = [generate_weapon(player_class, level), generate_weapon(player_class, level),
+             generate_armor(level, player_class=player_class), generate_armor(level, player_class=player_class),
+             generate_accessory(level, player_class=player_class)]
+    while len(stock) < SHOP_STOCK_SIZE + 1:
         stock.append(generate_consumable())
     return stock

@@ -1,0 +1,65 @@
+{% from 'partials/item.html' import item_stats %}
+  {% set p = state.player %}
+  {% set ws = state.workshop %}
+  {% set skill = ws.skill %}
+  {% set recipe = crafting_recipes[skill][ws.recipe] %}
+  {% set smith = skill == 'Smithing' %}
+  <form method="post" action="/action"><button class="back-btn" name="action" value="back">← Back to crafting</button></form>
+  <p class="page-title">{{ 'The Forge' if smith else 'The Fletching Bench' }}</p>
+
+  {% if state.messages %}
+  <div class="msgs">{% for m in state.messages %}<div class="msg msg-{{ m.kind }}">{{ m.text }}</div>{% endfor %}</div>
+  {% endif %}
+
+  <div class="card">
+    {% if smith %}
+    <div class="recipe-name">{{ recipe.metal }} — {{ metal_traits[recipe.metal] }}</div>
+    {% else %}
+    <div class="recipe-name">{{ recipe.name }} — {{ recipe.wood }} wood: {{ trades.wood_trait(p, recipe.wood) }}</div>
+    {% endif %}
+    <div class="item-meta">{{ skill }} Lv {{ p.crafting_skills[skill].level }} (recipe Lv {{ recipe.req }}) ·
+      {% for res, qty in recipe.inputs.items() %}{{ qty }}× {{ res }} (have {{ p.resources.get(res, 0) }}){% endfor %}</div>
+  </div>
+
+  <form method="post" action="/action">
+    {% if smith %}
+    <div class="card-head">Make</div>
+    <div class="btn-grid">
+      {% for slot, label in [('weapon', '⚔ ' ~ smithed_weapon.get(p.player_class, 'Sword')), ('armor', '🛡 Plate')] %}
+      <button class="{{ 'btn-cyan' if ws.slot == slot else 'btn-dim' }}" name="action" value="ws_slot_{{ slot }}">{{ label }}</button>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="card-head">Profile</div>
+    {% for name, data in profiles.items() %}
+    <button class="path-btn {{ 'btn-cyan' if ws.profile == name else 'btn-dim' }}" name="action" value="ws_profile_{{ name }}">
+      {{ name }}<span class="ability-desc">{{ data[2] }}</span></button>
+    {% endfor %}
+    {% endif %}
+
+    <div class="card-head">Additive</div>
+    {% set usable = trades.usable_additives(p, skill) %}
+    <div class="btn-grid">
+      <button class="{{ 'btn-cyan' if not ws.additive else 'btn-dim' }}" name="action" value="ws_add_none">None</button>
+      {% for add in trades.WORKSHOP_ADDITIVES[skill] if add in usable %}
+      <button class="{{ 'btn-cyan' if ws.additive == add else 'btn-dim' }}" name="action" value="ws_add_{{ add }}">{{ add }} ×{{ p.resources.get(add, 0) }}</button>
+      {% endfor %}
+    </div>
+    {% if not usable %}<div class="item-meta">{% if smith %}Gems (Smithing 10) and Starmetal (Smithing 20) improve quality. Prospect veins to find them.{% else %}Heartwood (Fletching 10) and Ancient Heartwood (Fletching 20) improve quality. Cut it from special trees.{% endif %}</div>{% endif %}
+
+    {% set shift = trades.craft_shift(p, skill, recipe, ws.additive) %}
+    {% set odds = trades.quality_odds(shift, ws.additive == trades.LEGENDARY_ADDITIVE[skill]) %}
+    <div class="card-head">Quality odds</div>
+    <div class="card odds">
+      {% for tier, pct in odds.items() %}<span class="r-{{ tier }}">{{ tier }} {{ (pct * 100) | round | int }}%</span>{% if not loop.last %} · {% endif %}{% endfor %}
+      <div class="item-meta">Higher {{ skill }} over the recipe, additives and the Masterwork perk improve these.</div>
+    </div>
+
+    {% set ready = trades.can_craft_at_bench(p, skill, recipe) %}
+    <button class="{{ 'btn-yellow' if ready else 'btn-dim' }} btn-center" name="action" value="ws_forge" {% if not ready %}disabled{% endif %}>
+      {% if smith %}🔨 Forge {{ recipe.metal }} {{ smithed_weapon.get(p.player_class, 'Sword') if ws.slot == 'weapon' else 'Plate' }}
+      {% else %}🏹 Craft {{ recipe.name }} ({{ ws.profile }}){% endif %}</button>
+  </form>
+
+  {% set eq = p.equipment.get(ws.slot if smith else 'weapon') %}
+  {% if eq %}<div class="item-meta" style="margin-top:8px;">Currently equipped: {{ eq.name }}</div>{{ item_stats(eq) }}{% endif %}

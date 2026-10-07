@@ -1,13 +1,24 @@
 import random
 from enemies import get_zone_enemies
+from world import ZONES
 
 QUEST_TYPES = ["kill", "collect", "explore", "bounty"]
 
-COLLECT_ITEMS = [
-    "Goblin Ear", "Wolf Pelt", "Dragon Scale", "Ancient Rune",
-    "Enchanted Crystal", "Shadow Essence", "Bones of the Fallen",
-    "Cursed Idol", "Moonstone", "Vampire Fang",
-]
+# Collect quests: each trophy drops (COLLECT_DROP_CHANCE) from specific enemies.
+COLLECT_ITEMS = {
+    "Goblin Ear":          ["Goblin"],
+    "Wolf Pelt":           ["Forest Wolf"],
+    "Bones of the Fallen": ["Skeleton", "Undead Titan"],
+    "Cursed Idol":         ["Bandit", "Orc Warrior"],
+    "Ancient Rune":        ["Dark Mage", "Lich"],
+    "Enchanted Crystal":   ["Stone Golem", "Chaos Elemental"],
+    "Vampire Fang":        ["Vampire"],
+    "Dragon Scale":        ["Wyvern", "Ancient Dragon"],
+    "Shadow Essence":      ["Shadow Assassin", "Void Stalker"],
+}
+COLLECT_DROP_CHANCE = 0.5
+EXPLORE_STEPS = (4, 7)       # scouting quests: explore the zone this many times
+BOUNTY_LEADER_CHANCE = 0.35  # chance a matching encounter is the bounty's Leader
 
 QUEST_GIVERS = [
     "The Village Elder", "A Mysterious Stranger", "The Blacksmith",
@@ -18,12 +29,6 @@ QUEST_GIVERS = [
 
 KILL_VERBS    = ["eliminate", "slay", "hunt down", "destroy", "put an end to"]
 COLLECT_VERBS = ["gather", "retrieve", "bring back", "collect", "obtain"]
-EXPLORE_LOCS  = [
-    "the Abandoned Mine", "the Dark Forest", "the Cursed Ruins",
-    "the Ancient Temple", "the Forgotten Graveyard", "the Misty Swamp",
-    "the Volcanic Caves", "the Frozen Peaks", "the Sunken City",
-    "the Shadow Realm",
-]
 
 
 class Quest:
@@ -52,34 +57,23 @@ class Quest:
         return self.current >= self.target_count
 
     def update(self, event_type, name=None):
-        if self.completed:
+        """Advance on a game event: ('kill', enemy name) or ('explore', zone name)."""
+        if self.completed or not name:
             return False
         if self.quest_type == "kill" and event_type == "kill":
-            if name and (name.lower() in self.target_name.lower() or self.target_name.lower() in name.lower()):
-                self.current += 1
-                return True
+            hit = self.target_name.lower() in name.lower()
         elif self.quest_type == "collect" and event_type == "kill":
-            if random.random() < 0.33:
-                self.current += 1
-                return True
+            hit = (any(src.lower() in name.lower() for src in COLLECT_ITEMS.get(self.target_name, []))
+                   and random.random() < COLLECT_DROP_CHANCE)
         elif self.quest_type == "explore" and event_type == "explore":
-            if name == self.target_name:
-                self.current += 1
-                return True
+            hit = name == self.target_name
         elif self.quest_type == "bounty" and event_type == "kill":
-            if name and self.target_name.lower() in name.lower():
-                self.current += 1
-                return True
-        return False
-
-    def display(self):
-        star   = "\033[33m★\033[0m" if self.active else " "
-        done   = " \033[32m[COMPLETE]\033[0m" if self.is_complete() else ""
-        return (f"{star} [{self.quest_type.upper()}] {self.title}{done}\n"
-                f"    {self.description}\n"
-                f"    Progress: {self.progress_str}  "
-                f"Reward: {self.reward_xp} XP + {self.reward_gold}g"
-                + (f" + Item" if self.reward_item else ""))
+            hit = name.lower() == f"{self.target_name} Leader".lower()
+        else:
+            hit = False
+        if hit:
+            self.current += 1
+        return hit
 
 
 _quest_id_counter = 0
@@ -108,30 +102,35 @@ def generate_quest(zone=1, level=1):
         return Quest(_next_id(), "kill", title, desc, objective, target, count, gold, xp, zone=zone)
 
     elif quest_type == "collect":
-        item      = random.choice(COLLECT_ITEMS)
+        zone_enemies = set(get_zone_enemies(zone))
+        options   = [it for it, srcs in COLLECT_ITEMS.items() if zone_enemies & set(srcs)] or ["Goblin Ear"]
+        item      = random.choice(options)
+        sources   = [e for e in COLLECT_ITEMS[item] if e in zone_enemies] or COLLECT_ITEMS[item]
         count     = random.randint(2, 5)
         verb      = random.choice(COLLECT_VERBS)
         title     = f"{verb.capitalize()} {item}s"
-        desc      = f"{giver} needs you to {verb} {count} {item}s from the wilderness."
+        desc      = f"{giver} needs {count} {item}s. They drop from {' and '.join(e + 's' for e in sources)}."
         objective = f"{verb.capitalize()} {count} {item}s"
         gold      = int((count * 20 + zone * 12) * diff_mult)
         xp        = int((count * 18 + zone * 12) * diff_mult)
         return Quest(_next_id(), "collect", title, desc, objective, item, count, gold, xp, zone=zone)
 
     elif quest_type == "explore":
-        location  = random.choice(EXPLORE_LOCS)
-        title     = f"Explore {location}"
-        desc      = f"{giver} wants information about {location}. Venture there and survive."
-        objective = f"Reach {location}"
+        zone_name = ZONES[zone]["name"]
+        steps     = random.randint(*EXPLORE_STEPS)
+        title     = f"Scout the {zone_name}"
+        desc      = f"{giver} wants a report on the {zone_name}. Explore it {steps} times and survive."
+        objective = f"Explore the {zone_name} ({steps}×)"
         gold      = int((40 + zone * 15) * diff_mult)
         xp        = int((50 + zone * 20) * diff_mult)
-        return Quest(_next_id(), "explore", title, desc, objective, location, 1, gold, xp, zone=zone)
+        return Quest(_next_id(), "explore", title, desc, objective, zone_name, steps, gold, xp, zone=zone)
 
     else:  # bounty
         enemies   = get_zone_enemies(zone) or ["Goblin"]
         target    = random.choice(enemies)
         title     = f"Bounty: {target} Leader"
-        desc      = f"{giver} has posted a bounty. Bring down a powerful {target}."
+        desc      = (f"{giver} has posted a bounty on a {target} Leader — tougher than the rest. "
+                     f"Keep exploring here; it hunts with the pack.")
         objective = f"Defeat the {target} Leader"
         gold      = int((60 + zone * 20) * diff_mult)
         xp        = int((80 + zone * 25) * diff_mult)

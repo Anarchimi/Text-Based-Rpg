@@ -1,0 +1,26 @@
+{# Shared gear rendering. Import with: {% from 'partials/item.html' import item_stats, compare %} #}
+{% macro stat_text(k, v) -%}
+{{ '+' if v >= 0 else '' }}{{ v }}{{ '' if k == 'crit' else ' ' }}{{ STAT_LABELS.get(k, k | upper) }}
+{%- endmacro %}
+
+{% macro item_stats(item) %}
+  <div class="item-meta">{% for k, v in item.stats.items() %}<span class="stat-chip">{{ stat_text(k, v) }}</span>{% endfor %}</div>
+  {% if item.crafted %}<div class="item-meta crafted-tag">⚒ Crafted · {{ item.material }} {{ item.kind | lower }}{% if item.profile %} · {{ item.profile }} profile{% endif %}{% if item.temper %} · Tempered: {{ item.temper }}{% endif %}</div>{% endif %}
+  {% if item.legendary %}<div class="item-meta legendary-fx">✦ {{ item.legendary }} — {{ LEGENDARY_EFFECTS[item.legendary][1] }}</div>{% endif %}
+{% endmacro %}
+
+{% macro compare(item, equipped) %}
+  {% if equipped %}
+    {% set keys = (item.stats.keys() | list) + (equipped.stats.keys() | list) %}
+    <div class="item-meta">vs equipped:
+    {%- for k in keys | unique %}
+      {%- set d = item.stats.get(k, 0) - equipped.stats.get(k, 0) %}
+      {%- if d != 0 %} <span class="{{ 'diff-up' if d > 0 else 'diff-down' }}">{{ stat_text(k, d) }}</span>{% endif %}
+    {%- endfor %}
+    {%- if equipped.legendary and equipped.legendary != item.legendary %} <span class="diff-down">loses {{ equipped.legendary }}</span>{% endif %}
+    {%- if item.legendary and equipped.legendary != item.legendary %} <span class="diff-up">gains {{ item.legendary }}</span>{% endif %}
+    </div>
+  {% else %}
+    <div class="item-meta"><span class="diff-up">Empty {{ item.item_type }} slot</span></div>
+  {% endif %}
+{% endmacro %}

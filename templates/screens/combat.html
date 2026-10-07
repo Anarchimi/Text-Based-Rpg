@@ -1,0 +1,95 @@
+  {% set p = state.player %}
+  {% set e = state.combat_enemy %}
+  {% set hp_pct = (p.hp / p.max_hp * 100)|int %}
+  {% set mp_pct = (p.mp / p.max_mp * 100)|int %}
+  {% set ehp_pct = (e.hp / e.max_hp * 100)|int %}
+
+  <div class="status-bar">
+    <div class="status-name">{{ p.name }} &nbsp;·&nbsp; Lv {{ p.level }}</div>
+    <div class="bar-row">
+      <div class="bar-lbl">HP</div>
+      <div class="bar-track">
+        <div class="bar-fill {% if hp_pct < 25 %}bar-hp-cr{% elif hp_pct < 50 %}bar-hp-lo{% else %}bar-hp{% endif %}"
+             style="width:{{ hp_pct }}%"></div>
+      </div>
+      <div class="bar-nums" style="color:{% if hp_pct < 25 %}var(--red){% elif hp_pct < 50 %}var(--yellow){% else %}var(--green){% endif %}">{{ p.hp }}/{{ p.max_hp }}</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-lbl">MP</div>
+      <div class="bar-track"><div class="bar-fill bar-mp" style="width:{{ mp_pct }}%"></div></div>
+      <div class="bar-nums" style="color:var(--blue)">{{ p.mp }}/{{ p.max_mp }}</div>
+    </div>
+    {% if p.buffs or p.temp_buffs or p.debuffs or p.meal %}
+    <div class="status-meta">
+      {% if p.meal %}<div class="meta-badge" style="color:var(--cyan)">🍲 {{ p.meal.name }}</div>{% endif %}
+      {% for b in p.buffs %}<div class="meta-badge" style="color:var(--green)">{{ b }}({{ p.buffs[b] }}t)</div>{% endfor %}
+      {% for tb in p.temp_buffs %}<div class="meta-badge" style="color:var(--green)">{{ tb.stat | upper }}+{{ tb.amount }}({{ tb.turns }}t)</div>{% endfor %}
+      {% for name, d in p.debuffs.items() %}<div class="meta-badge" style="color:var(--{{ 'yellow' if name == 'Stunned' else 'purple' }})">{{ name | upper }}{% if d.dmg %} {{ d.dmg }}/t{% endif %}{% if name != 'Stunned' %}({{ d.turns }}t){% endif %}</div>{% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="enemy-card">
+    <div class="enemy-name">{{ e.name }}{% if e.is_boss %} 💀{% endif %} <span style="font-size:12px;color:var(--dim);font-weight:normal;">Lv ~{{ e.level }}</span></div>
+    <span class="enemy-sprite">{{ enemy_sprites.get(e.template_name, '👾') }}</span>
+    <div class="bar-row">
+      <div class="bar-lbl">HP</div>
+      <div class="bar-track">
+        <div class="bar-fill {% if ehp_pct < 25 %}bar-hp-cr{% elif ehp_pct < 50 %}bar-hp-lo{% else %}bar-hp{% endif %}"
+             style="width:{{ ehp_pct }}%"></div>
+      </div>
+      <div class="bar-nums" style="color:{% if ehp_pct < 25 %}var(--red){% elif ehp_pct < 50 %}var(--yellow){% else %}var(--green){% endif %}">{{ e.hp }}/{{ e.max_hp }}</div>
+    </div>
+    {% if e.phase == 2 %}<div style="font-size:12px;color:var(--red);margin-top:4px;">🔥 PHASE 2</div>{% endif %}
+    {% if e.charging %}<div style="font-size:13px;color:var(--red);margin-top:4px;font-weight:bold;">⚠ CHARGING {{ e.charging | upper }} — Defend, dodge or stun!</div>{% endif %}
+    {% if e.stunned %}<div style="font-size:12px;color:var(--yellow);margin-top:4px;">⚡ STUNNED</div>{% endif %}
+    {% if e.dot > 0 %}<div style="font-size:12px;color:var(--purple);margin-top:4px;">☠ {{ e.dot_name | upper }} ({{ e.dot_dmg }} dmg/turn)</div>{% endif %}
+    {% for name in e.statuses %}<div style="font-size:12px;color:var(--{{ 'cyan' if name == 'Chilled' else 'yellow' }});margin-top:4px;">{{ {'Chilled': '❄ CHILLED (ATK -25%)', 'Enraged': '💢 ENRAGED (ATK +30%)', 'Shielded': '🛡 SHIELDED (half damage)', 'Evading': '💨 EVADING (dodges next hit)', 'Blinded': '🌫 BLINDED (misses 40%)'}.get(name, name) }}</div>{% endfor %}
+  </div>
+
+  <div class="card-head">Turn {{ state.combat_turn }}</div>
+  <div class="combat-log msgs">
+    {% for entry in state.combat_log %}
+    <div class="msg msg-{{ entry.kind }}">{{ entry.text }}</div>
+    {% endfor %}
+  </div>
+
+  {% set abilities = p.get_abilities() %}
+  {% set consumables = p.combat_consumables() %}
+
+  <form method="post" action="/action">
+    <button class="btn-cyan" name="action" value="attack">⚔ Attack</button>
+
+    {% if abilities %}
+    <details>
+      <summary>✨ Abilities</summary>
+      <div class="sub-menu">
+        {% for i, ab in enumerate(abilities) %}
+        <button name="action" value="ability_{{ i }}"
+                {% if p.mp < ability_cost(p, ab) %}class="btn-dim"{% endif %}>
+          {{ ab.name }} <span class="ability-cost">[MP: {{ ability_cost(p, ab) }}]</span>
+          <span class="ability-desc">{{ ab.description }}</span>
+        </button>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+
+    {% if consumables %}
+    <details>
+      <summary>🎒 Items</summary>
+      <div class="sub-menu">
+        {% for i, item in enumerate(consumables) %}
+        <button name="action" value="item_{{ i }}">
+          {{ item.name }}
+          <span class="ability-desc">{{ item.effect | replace('_', ' ') }} · Worth {{ item.value }}g</span>
+        </button>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+
+    <button class="btn-yellow" name="action" value="defend">🛡 Defend <span class="ability-desc">{{ defend_reduction(p) }}% less damage, no stuns, +8% MP</span></button>
+
+    <button class="btn-dim" name="action" value="flee">↩ Flee</button>
+  </form>

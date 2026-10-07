@@ -9,10 +9,17 @@ from flask import Flask, session, request, redirect, url_for, render_template
 from flask_compress import Compress
 
 from player import Player, PROFESSIONS
-from enemies import spawn_enemy
+from abilities import PROFESSION_ABILITIES
+from enemies import BOSS_TEMPLATES, spawn_enemy, spawn_final_boss
+from quests import BOUNTY_LEADER_CHANCE
+from combat import ability_cost, defend_reduction, do_combat_turn, end_combat, hit_player  # noqa: F401  (hit_player re-exported for tests)
 from quests import QuestLog, generate_quest
-from items import generate_shop_stock, generate_weapon, generate_armor, generate_consumable
-from world import explore_step, travel_to_zone, ZONES, ZONE_LEVEL_REQ, get_zone
+from items import (generate_shop_stock, generate_weapon, generate_armor, generate_consumable, upgrade_cost,
+                   STAT_LABELS, LEGENDARY_EFFECTS, METAL_TRAIT_TEXT, SMITHED_WEAPON, PROFILES, WOODS)
+from world import (travel_to_zone, ZONES, ZONE_LEVEL_REQ, LAIR_STEPS, MAX_DEPTH, DEPTH_GOLD, DEPTH_LUCK,
+                   get_zone, generate_explore_options, describe_option, resolve_option, depth_effects)
+import trades
+from trades import TRADE_MILESTONES, next_milestone
 from crafting import (TRADE_PROFESSIONS, CRAFTING_RECIPES, ZONE_RESOURCES,
                       GATHERING_SKILLS, CRAFTING_SKILLS, SKILL_ICONS,
                       GATHER_BUTTON_LABELS, gather_resource, craft_item, calc_skill_level)
@@ -35,18 +42,40 @@ Compress(app)
 
 app.jinja_env.globals['enumerate'] = enumerate
 app.jinja_env.globals['len'] = len
+app.jinja_env.globals['upgrade_cost'] = upgrade_cost
+app.jinja_env.globals['depth_effects'] = depth_effects
+app.jinja_env.globals['max_depth'] = MAX_DEPTH
+app.jinja_env.globals['next_milestone'] = next_milestone
+app.jinja_env.globals['trade_milestones'] = TRADE_MILESTONES
+app.jinja_env.globals['trades'] = trades
+app.jinja_env.globals['metal_traits'] = METAL_TRAIT_TEXT
+app.jinja_env.globals['smithed_weapon'] = SMITHED_WEAPON
+app.jinja_env.globals['profiles'] = PROFILES
+app.jinja_env.globals['woods'] = WOODS
+app.jinja_env.globals['profession_abilities'] = PROFESSION_ABILITIES
+app.jinja_env.globals['ability_cost'] = ability_cost
+app.jinja_env.globals['defend_reduction'] = defend_reduction
+app.jinja_env.globals['STAT_LABELS'] = STAT_LABELS
+app.jinja_env.globals['LEGENDARY_EFFECTS'] = LEGENDARY_EFFECTS
 
-SAVE_DIR = '/tmp/rpg_saves'
+# Saves outlive restarts: default to <repo>/instance/saves, override with RPG_SAVE_DIR
+# (point it at a persistent volume in production).
+def resolve_save_dir():
+    return os.environ.get('RPG_SAVE_DIR') or os.path.join(app.instance_path, 'saves')
+
+
+SAVE_DIR = resolve_save_dir()
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 _PICKLE_PROTOCOL = pickle.HIGHEST_PROTOCOL
 
+# Keyed by how many seals are broken (not which zone), so any order reads right.
 SEAL_MESSAGES = {
     1: "✦ The FIRST SEAL cracks. A darkness stirs beyond the horizon...",
     2: "✦ The SECOND SEAL shatters. Ancient powers begin to wake...",
     3: "✦ The THIRD SEAL breaks. The veil between worlds grows thin...",
     4: "✦ The FOURTH SEAL collapses. Reality itself begins to fracture...",
-    5: "✦ THE FINAL SEAL IS BROKEN! The Chaos Dragon Lord awakens! You are the realm's last hope!",
+    5: "✦ THE FINAL SEAL IS BROKEN! The Chaos Dragon Lord awakens on Dragon's Peak. Go — end this.",
 }
 
 ENEMY_SPRITES = {
@@ -68,6 +97,8 @@ ENEMY_SPRITES = {
     "Goblin King":      "👑",
     "Undead Warlord":   "☠️",
     "Arcane Lich King": "🧿",
+    "Shadow Sovereign": "🌑",
+    "Ignaroth the Elder Wyrm": "🐉",
     "Chaos Dragon Lord":"🔥",
 }
 
@@ -88,9 +119,19 @@ def get_state():
         return None
     try:
         with open(f'{SAVE_DIR}/{sid}.pkl', 'rb') as f:
-            return pickle.load(f)
+            return migrate_state(pickle.load(f))
     except Exception:
         return None
+
+
+def migrate_state(state):
+    """Fill in state keys added after a save was written."""
+    if 'seals' not in state:
+        # Old saves only stored a count; assume the earliest zones' seals were broken.
+        state['seals'] = set(range(1, state.get('narrative_stage', 0) + 1))
+    for key, default in fresh_state().items():
+        state.setdefault(key, default)
+    return state
 
 
 def save_state(state):
@@ -99,8 +140,17 @@ def save_state(state):
         sid = str(uuid.uuid4())
         session['sid'] = sid
     os.makedirs(SAVE_DIR, exist_ok=True)
-    with open(f'{SAVE_DIR}/{sid}.pkl', 'wb') as f:
-        pickle.dump(state, f, protocol=_PICKLE_PROTOCOL)
+    path = f'{SAVE_DIR}/{sid}.pkl'
+    # Write then rename, so a crash mid-write can't leave a truncated save behind.
+    tmp = f'{path}.{os.getpid()}.tmp'
+    try:
+        with open(tmp, 'wb') as f:
+            pickle.dump(state, f, protocol=_PICKLE_PROTOCOL)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
 
 
 def fresh_state():
@@ -117,7 +167,17 @@ def fresh_state():
         'combat_log': [],
         'shop_stock': None,
         'board_quests': None,
-        'narrative_stage': 0,
+        'narrative_stage': 0,     # == len(seals); kept for the hub seal bar
+        'seals': set(),           # zone ids whose boss has been defeated
+        'dragon_slain': False,
+        'ng_plus': 0,
+        'lair_progress': {},      # zone id -> explore steps taken there (LAIR_STEPS finds the boss)
+        'depth': 0,               # trail depth: paths taken since last rest (see world.py)
+        'explore_options': None,  # offered paths, kept until one is taken
+        'pending_node': None,     # special trade node being decided (trades.py), shown on `node`
+        'node_return': 'gather',  # screen to go back to after the node
+        'workshop': None,         # {'skill', 'recipe', 'slot', 'additive'} on the `workshop` screen
+        'alchemy_pick': [],       # up to two ingredients chosen on the `alchemy` screen
         'triggered_events': set(),
         'craft_skill': 'Smithing',
     }
@@ -140,169 +200,201 @@ def check_profession_unlock(state, player, fallback_screen):
     return False
 
 
-# ── Combat logic ──────────────────────────────────────────────────────────────
+# ── Exploring ─────────────────────────────────────────────────────────────────
 
-def do_combat_turn(state, action, ability_idx=None, item_idx=None):
+def nap_restore(player):
+    """A nap restores half of what's *missing* (rounded up), so repeated naps never beat
+    the Full Rest: each costs at least 40% of the base price but closes only half the gap."""
+    return -(-(player.max_hp - player.hp) // 2), -(-(player.max_mp - player.mp) // 2)
+
+
+def fully_rested(player):
+    return player.hp >= player.max_hp and player.mp >= player.max_mp
+
+
+def inn_prices(player):
+    """(full rest, nap) in gold. Scales with level and with how much HP *and* MP is missing."""
+    missing = (player.max_hp - player.hp) // 8 + (player.max_mp - player.mp) // 8
+    full = 10 + player.level * 6 + missing
+    return full, max(5, int(full * 0.4))
+
+
+app.jinja_env.globals['inn_prices'] = inn_prices
+app.jinja_env.globals['fully_rested'] = fully_rested
+app.jinja_env.globals['nap_restore'] = nap_restore
+
+
+def special_node_for(player, zone, skill):
+    """Occasionally a routine gather tap turns into a special node (milestone-gated)."""
+    if skill == 'Mining' and random.random() < trades.VEIN_CHANCE:
+        return trades.make_vein_node(player, zone)
+    if skill == 'Herbalism' and random.random() < trades.PATCH_CHANCE:
+        return trades.make_patch_node(player, zone)
+    if skill == 'Fishing' and random.random() < trades.BITE_CHANCE:
+        return trades.make_bite_node(player, zone)
+    if skill == 'Woodcutting' and random.random() < trades.TREE_CHANCE:
+        return trades.make_tree_node(player, zone)
+    return None
+
+
+def open_node(state, node, return_to):
+    state['pending_node'] = node
+    state['node_return'] = return_to
+    state['screen'] = 'node'
+
+
+def reset_depth(state):
+    """Resting or leaving the zone ends the trail; offered paths re-roll for the new depth."""
+    if state.get('depth'):
+        state['depth'] = 0
+        state['explore_options'] = None
+
+
+def start_combat(state, enemy, intro, kind='info', return_to='hub'):
+    state['combat_enemy'] = enemy
+    state['combat_turn'] = 1
+    state['combat_log'] = [{'kind': kind, 'text': intro}]
+    snare = trades.spring_trap(state['player'], enemy)
+    if snare:
+        state['combat_log'].append({'kind': 'player', 'text': snare})
+    state['return_to'] = return_to
+    state['player'].first_strike_used = False
+    state['screen'] = 'combat'
+
+
+def ensure_explore_options(state):
+    """Offer paths once; they persist until one is taken (no rerolling by backing out)."""
+    if state.get('explore_options'):
+        return
     player = state['player']
-    enemy  = state['combat_enemy']
-    log    = state['combat_log']
+    options = generate_explore_options(player, state['zone'], state.setdefault('triggered_events', set()),
+                                       state.get('depth', 0), ng=state.get('ng_plus', 0))
+    for opt in options:
+        enemy = opt.get('enemy')
+        if (enemy and not enemy.is_boss and random.random() < BOUNTY_LEADER_CHANCE
+                and any(q.quest_type == 'bounty' and q.target_name == enemy.name
+                        for q in state['quest_log'].active_quests())):
+            enemy.make_leader()
+    for opt in options:
+        opt['title'], opt['detail'] = describe_option(opt, state['zone'], player.level)
+    state['explore_options'] = options
 
-    def clog(kind, text):
-        log.append({'kind': kind, 'text': text})
 
-    if action == 'attack':
-        bonus = random.randint(-2, 4)
-        crit  = random.random() < (0.05 + player.dex / 200)
-        dmg   = int((player.attack + bonus) * (1.8 if crit else 1.0))
+def take_explore_path(state, player, opt):
+    state['explore_options'] = None
+    zone = state['zone']
+    lairs = state['lair_progress']
+    lairs[zone] = lairs.get(zone, 0) + 1
+    if lairs[zone] == LAIR_STEPS:
+        add_msg(state, 'lore', f"💀 You've found the lair of {zone_boss_name(zone)}! "
+                               f"You can challenge it from the hub whenever you're ready.")
+    depth = state.get('depth', 0)
+    state['depth'] = min(MAX_DEPTH, depth + 1)
+    events = resolve_option(opt, player, zone, state.setdefault('triggered_events', set()), depth)
+    apply_explore_events(state, player, events)
+    if state['screen'] == 'explore':
+        after_explore_step(state, player)
+    # else: a fight or a special node opened; the step finishes when that resolves
 
-        # Ranger first-strike passive
-        if player.profession == 'Ranger' and not player.first_strike_used:
-            dmg = int(dmg * 1.2)
-            player.first_strike_used = True
-            clog('buff', 'Ranger first-strike bonus! +20% ATK')
 
-        # Berserker passive
-        if player.profession == 'Berserker' and player.hp < player.max_hp * 0.3:
-            dmg = int(dmg * 1.5)
-            clog('buff', 'BERSERK RAGE! +50% ATK!')
+def after_explore_step(state, player):
+    """Quest progress, profession prompt and fresh paths after a non-fight trail step."""
+    quest_log = state['quest_log']
+    quest_log.check_event('explore', get_zone(state['zone'])['name'])
+    complete_finished_quests(state, player, quest_log)
+    if not check_profession_unlock(state, player, 'explore'):
+        ensure_explore_options(state)
 
-        actual = enemy.take_damage(dmg)
-        if crit:
-            clog('crit', '★ CRITICAL HIT!')
-        clog('player', f'{player.name} attacks for {actual} damage.')
 
-    elif action == 'ability' and ability_idx is not None:
-        abilities = player.get_abilities()
-        if 0 <= ability_idx < len(abilities):
-            picked = abilities[ability_idx]
-            if player.mp < picked.mp_cost:
-                clog('danger', 'Not enough MP!')
-                return 'continue'
-            player.mp -= picked.mp_cost
-            stats = {'str': int(player.str), 'dex': int(player.dex), 'int': int(player.int)}
-            effect = picked.calculate_effect(stats)
-            if picked.ability_type == 'damage':
-                crit = random.random() < 0.12
-                dmg  = int(effect * (1.5 if crit else 1.0))
+def complete_finished_quests(state, player, quest_log):
+    for q in list(quest_log.active_quests()):
+        if q.is_complete():
+            quest_log.finish_quest(q)
+            player.gold += q.reward_gold
+            player.gain_xp(q.reward_xp)
+            player.quests_completed += 1
+            add_msg(state, 'quest', f'Quest complete: {q.title}! +{q.reward_gold}g +{q.reward_xp} XP')
 
-                # Sorcerer passive
-                if player.profession == 'Sorcerer':
-                    dmg = int(dmg * 1.3)
 
-                # Necromancer passive
-                if player.profession == 'Necromancer' and enemy.hp < enemy.max_hp * 0.5:
-                    dmg = int(dmg * 1.2)
+def apply_explore_events(state, player, events):
+    """Apply (event_type, value, message) outcomes from world.resolve_option."""
+    def say(kind, msg, suffix):
+        add_msg(state, kind, f'{msg} {suffix}'.strip())
 
-                # Berserker passive
-                if player.profession == 'Berserker' and player.hp < player.max_hp * 0.3:
-                    dmg = int(dmg * 1.5)
-                    clog('buff', 'BERSERK RAGE! +50% ATK!')
+    for ev_type, val, ev_msg in events:
+        if ev_type == 'gold':
+            player.gold += val
+            say('gold', ev_msg, f'+{val} gold!')
+        elif ev_type == 'heal_pct':
+            healed = min(int(player.max_hp * val / 100), player.max_hp - player.hp)
+            player.hp += healed
+            say('heal', ev_msg, f'+{healed} HP!')
+        elif ev_type == 'heal_mp_pct':
+            restored = min(int(player.max_mp * val / 100), player.max_mp - player.mp)
+            player.mp += restored
+            say('heal', ev_msg, f'+{restored} MP!')
+        elif ev_type == 'xp':
+            levels = player.gain_xp(val)
+            say('xp', ev_msg, f'+{val} XP!')
+            for lvl in levels:
+                add_msg(state, 'levelup', f'★ LEVEL UP! Now Level {lvl}!')
+        elif ev_type == 'trap_pct':
+            dmg = max(1, int(player.max_hp * val / 100))
+            player.hp = max(1, player.hp - dmg)
+            say('danger', ev_msg, f'-{dmg} HP!')
+        elif ev_type == 'item':
+            player.add_item(val)
+            say('loot', ev_msg, f'[{val.rarity}] {val.name}')
+        elif ev_type == 'resource':
+            add_msg(state, 'success', ev_msg)
+        elif ev_type == 'set_depth':
+            state['depth'] = val
+            state['explore_options'] = None
+            add_msg(state, 'dim', f'Your camp kept you on the trail — depth {val}.')
+        elif ev_type == 'reset_depth':
+            reset_depth(state)
+            add_msg(state, 'dim', 'Rested — the trail depth resets.')
+        elif ev_type == 'node':
+            add_msg(state, 'info', ev_msg)
+            open_node(state, val, return_to=state['screen'])
+            return
+        elif ev_type == 'encounter':
+            add_msg(state, 'warning', ev_msg)
+            enemy = val
+            label = f'BOSS: {enemy.name}' if enemy.is_boss else f'A {enemy.name}'
+            start_combat(state, enemy, f'{label} (Level ~{enemy.level}) appears!', return_to='explore')
+            return
+        elif ev_msg:
+            add_msg(state, 'info' if ev_type == 'narrative' else 'dim', ev_msg)
 
-                if picked.name == 'Execute' and enemy.hp < enemy.max_hp * 0.30:
-                    dmg = int(dmg * 2)
-                    clog('crit', 'EXECUTE! 2× DAMAGE!')
-                if picked.name == 'Death Mark':
-                    mult = 3
-                    if player.profession == 'Assassin':
-                        mult = 5 if enemy.hp < enemy.max_hp * 0.40 else 4
-                    dmg = int(dmg * mult)
-                    clog('crit', f'DEATH MARK! {mult}× DAMAGE!')
 
-                actual = enemy.take_damage(dmg)
-                if crit:
-                    clog('crit', '★ CRITICAL!')
-                clog('player', f'{picked.name}: {actual} damage!')
+def zone_boss_name(zone):
+    return next(b['name'] for b in BOSS_TEMPLATES if b['zone'] == zone)
 
-                # Elementalist Burn passive
-                if player.profession == 'Elementalist' and random.random() < 0.30:
-                    enemy.dot = max(enemy.dot, 4)
-                    enemy.dot_dmg = max(enemy.dot_dmg, 5)
-                    clog('poison', 'BURN applied! Enemy is on fire!')
 
-            elif picked.ability_type == 'heal':
-                healed = min(effect, player.max_hp - player.hp)
-                player.hp += healed
-                clog('heal', f'{picked.name}: Restored {healed} HP!')
-            elif picked.ability_type == 'buff':
-                player.buffs[picked.name] = 3
-                clog('buff', f'{picked.name} activated for 3 turns!')
-            elif picked.ability_type == 'dot':
-                turns = 3
-                if player.profession == 'Trickster':
-                    turns = 5  # +2 extra turns
-                enemy.dot = turns
-                dot_dmg = effect
-                if player.profession == 'Trickster':
-                    dot_dmg = int(dot_dmg * 1.5)
-                enemy.dot_dmg = dot_dmg
-                clog('poison', f'Poisoned {enemy.name} for {dot_dmg} dmg/turn x{turns} turns!')
-            elif picked.ability_type == 'debuff':
-                enemy.stunned = True
-                clog('stun', f'{enemy.name} is stunned next turn!')
+def lair_found(state):
+    return state.get('lair_progress', {}).get(state['zone'], 0) >= LAIR_STEPS
 
-    elif action == 'item' and item_idx is not None:
-        consumables = [i for i in player.inventory if i.item_type == 'consumable']
-        if 0 <= item_idx < len(consumables):
-            ok, text = player.use_consumable(consumables[item_idx])
-            clog('heal' if ok else 'danger', text)
 
-    elif action == 'flee':
-        if player.profession == 'Ranger':
-            clog('warning', 'Ranger instincts guide you to safety!')
-            return 'fled'
-        flee_chance = 30 + int(player.dex) + int(player.speed * 1.5)
-        if random.randint(1, 100) < flee_chance - enemy.atk:
-            clog('warning', 'You fled from the battle!')
-            return 'fled'
-        clog('danger', "Couldn't flee! The enemy blocks your escape!")
+def final_battle_available(state):
+    return (len(state.get('seals', ())) >= 5 and not state.get('dragon_slain')
+            and state['zone'] == 5)
 
-    if not enemy.is_alive():
-        return 'victory'
 
-    dot_dmg = enemy.tick_dot()
-    if dot_dmg:
-        clog('poison', f'Poison deals {dot_dmg} to {enemy.name}. ({enemy.hp} HP left)')
-        if not enemy.is_alive():
-            return 'victory'
-
-    use_ability = random.random() < 0.3 and enemy.abilities
-    if use_ability:
-        ability_name, bonus = enemy.use_ability()
-        if enemy.stunned:
-            clog('warning', f'{enemy.name} is stunned and cannot act!')
-            enemy.stunned = False
-        else:
-            sdmg = max(1, int(enemy.atk * 1.3 + bonus) - player.defense)
-            player.hp = max(0, player.hp - sdmg)
-            clog('enemy', f'{enemy.name} uses {ability_name}! -{sdmg} HP')
-    else:
-        if enemy.stunned:
-            clog('warning', f'{enemy.name} is stunned and misses!')
-            enemy.stunned = False
-        else:
-            dmg, was_stunned = enemy.attack_player(player.defense)
-            if was_stunned:
-                clog('warning', f'{enemy.name} was stunned and missed!')
-            else:
-                player.hp = max(0, player.hp - dmg)
-                clog('enemy', f'{enemy.name} attacks: -{dmg} HP')
-
-    expired = player.tick_buffs()
-    if player.dot > 0:
-        clog('danger', f'You are poisoned! -{player.dot_dmg} HP')
-    for b in expired:
-        if not b.endswith('_buff'):
-            clog('warning', f'{b} wore off.')
-
-    if player.hp <= 0:
-        if player.has_revive():
-            clog('warning', 'Defeated... but a Phoenix Feather saves you!')
-            player.consume_revive()
-            return 'revived'
-        return 'defeat'
-
-    state['combat_turn'] += 1
-    return 'continue'
+def start_new_game_plus(state):
+    """Keep the character and gear; restart the story with tougher enemies."""
+    player = state['player']
+    state['ng_plus'] = state.get('ng_plus', 0) + 1
+    state['seals'] = set()
+    state['narrative_stage'] = 0
+    state['dragon_slain'] = False
+    state['triggered_events'] = set()
+    state['lair_progress'] = {}
+    state['zone'] = 1
+    player.hp, player.mp = player.max_hp, player.max_mp
+    state['screen'] = 'hub'
+    add_msg(state, 'lore', f"NEW GAME+ {state['ng_plus']}: The seals reform. The realm remembers your name — "
+                           f"and so does the darkness. Enemies are stronger; their treasure richer.")
 
 
 def finish_combat_victory(state):
@@ -311,7 +403,11 @@ def finish_combat_victory(state):
     quest_log = state['quest_log']
     log       = state['combat_log']
 
-    items, gold = enemy.loot_drop(player.level, int(player.lck))
+    end_combat(player)
+    depth = state.get('depth', 0) if state.get('return_to') == 'explore' else 0
+    items, gold = enemy.loot_drop(player.level, int(player.lck) + 10 * state.get('ng_plus', 0) + depth * DEPTH_LUCK,
+                                  player_class=player.player_class)
+    gold = int(gold * (1 + depth * DEPTH_GOLD))
     player.gold += gold
     player.kills += 1
     player.first_strike_used = False  # reset Ranger passive
@@ -323,6 +419,11 @@ def finish_combat_victory(state):
         log.append({'kind': 'loot', 'text': f'Loot: {item.name} [{item.rarity}]'})
         player.add_item(item)
 
+    reagent = trades.reagent_drop(enemy.name)
+    if reagent:
+        player.add_resource(reagent, 1)
+        log.append({'kind': 'loot', 'text': f'Reagent: 1× {reagent}'})
+
     for q in quest_log.check_event('kill', enemy.name):
         log.append({'kind': 'quest', 'text': f'Quest progress: {q.title}'})
 
@@ -331,11 +432,11 @@ def finish_combat_victory(state):
         log.append({'kind': 'levelup', 'text': f'★ LEVEL UP! Now Level {lvl}! +2 Skill Points'})
 
     # Narrative arc — Five Seals
-    if enemy.is_boss and state['zone'] > state.get('narrative_stage', 0):
-        state['narrative_stage'] = state['zone']
-        seal_msg = SEAL_MESSAGES.get(state['zone'], '')
-        if seal_msg:
-            log.append({'kind': 'lore', 'text': seal_msg})
+    seals = state.setdefault('seals', set())
+    if enemy.seal and enemy.seal not in seals:
+        seals.add(enemy.seal)
+        state['narrative_stage'] = len(seals)
+        log.append({'kind': 'lore', 'text': SEAL_MESSAGES[len(seals)]})
 
     quest_log.check_event('explore', get_zone(state['zone'])['name'])
     for q in list(quest_log.active_quests()):
@@ -348,6 +449,10 @@ def finish_combat_victory(state):
 
     state['combat_enemy'] = None
 
+    if enemy.is_final:
+        state['dragon_slain'] = True
+        state['screen'] = 'ending'
+        return
     if check_profession_unlock(state, player, 'combat_result'):
         return
     state['screen'] = 'combat_result'
@@ -371,7 +476,10 @@ def index():
                            gather_button_labels=GATHER_BUTTON_LABELS,
                            gathering_skills=GATHERING_SKILLS,
                            crafting_skills_list=CRAFTING_SKILLS,
-                           enemy_sprites=ENEMY_SPRITES)
+                           enemy_sprites=ENEMY_SPRITES,
+                           final_ready=bool(state.get('player')) and final_battle_available(state),
+                           lair_steps=LAIR_STEPS,
+                           zone_boss=zone_boss_name(state.get('zone') or 1))
 
 
 @app.route('/action', methods=['POST'])
@@ -445,75 +553,21 @@ def action():
         clear_msgs(state)
 
         if act == 'explore':
-            triggered = state.setdefault('triggered_events', set())
-            events = explore_step(player, state['zone'], triggered)
-            for ev_type, val, ev_msg in events:
-                if ev_type == 'narrative':
-                    if ev_msg:
-                        add_msg(state, 'info', ev_msg)
-                elif ev_type == 'gold':
-                    player.gold += val
-                    add_msg(state, 'gold', f'{ev_msg} +{val} gold!')
-                elif ev_type == 'heal_pct':
-                    amt = int(player.max_hp * val / 100)
-                    healed = min(amt, player.max_hp - player.hp)
-                    player.hp += healed
-                    add_msg(state, 'heal', f'{ev_msg} +{healed} HP!')
-                elif ev_type == 'heal_mp_pct':
-                    amt = int(player.max_mp * val / 100)
-                    restored = min(amt, player.max_mp - player.mp)
-                    player.mp += restored
-                    add_msg(state, 'heal', f'{ev_msg} +{restored} MP!')
-                elif ev_type == 'heal_hp':
-                    healed = min(val, player.max_hp - player.hp)
-                    player.hp += healed
-                    add_msg(state, 'heal', f'{ev_msg} +{healed} HP!')
-                elif ev_type == 'heal_mp':
-                    restored = min(val, player.max_mp - player.mp)
-                    player.mp += restored
-                    add_msg(state, 'heal', f'{ev_msg} +{restored} MP!')
-                elif ev_type == 'xp':
-                    levels = player.gain_xp(val)
-                    add_msg(state, 'xp', f'{ev_msg} +{val} XP!')
-                    for lvl in levels:
-                        add_msg(state, 'levelup', f'★ LEVEL UP! Now Level {lvl}!')
-                elif ev_type == 'rest':
-                    hp_gain = player.max_hp // 10
-                    player.hp = min(player.max_hp, player.hp + hp_gain)
-                    add_msg(state, 'heal', f'{ev_msg} +{hp_gain} HP')
-                elif ev_type == 'trap_pct':
-                    dmg = max(1, int(player.max_hp * val / 100))
-                    player.hp = max(1, player.hp - dmg)
-                    add_msg(state, 'danger', f'{ev_msg} -{dmg} HP! ({val}% of max HP)')
-                elif ev_type == 'trap':
-                    player.hp = max(1, player.hp - val)
-                    add_msg(state, 'danger', f'{ev_msg} -{val} HP!')
-                elif ev_type == 'encounter':
-                    force_boss = ev_msg.startswith('💀')
-                    add_msg(state, 'warning', ev_msg)
-                    enemy = spawn_enemy(zone=state['zone'], level=player.level, force_boss=force_boss)
-                    enemy_name_for_log = f"A {enemy.name}" if not enemy.is_boss else f"BOSS: {enemy.name}"
-                    state['combat_enemy'] = enemy
-                    state['combat_turn']  = 1
-                    state['combat_log']   = [{'kind': 'info', 'text': f'{enemy_name_for_log} (Level ~{enemy.level}) appears!'}]
-                    player.first_strike_used = False
-                    state['screen'] = 'combat'
-                    break
-                elif ev_type == 'nothing':
-                    add_msg(state, 'dim', ev_msg)
-            if state['screen'] == 'hub':
-                quest_log.check_event('explore', get_zone(state['zone'])['name'])
-                for q in list(quest_log.active_quests()):
-                    if q.is_complete():
-                        quest_log.finish_quest(q)
-                        player.gold += q.reward_gold
-                        player.gain_xp(q.reward_xp)
-                        player.quests_completed += 1
-                        add_msg(state, 'quest', f'Quest complete: {q.title}! +{q.reward_gold}g +{q.reward_xp} XP')
-                check_profession_unlock(state, player, 'hub')
+            ensure_explore_options(state)
+            state['screen'] = 'explore'
+
+        elif act == 'challenge_boss' and lair_found(state):
+            enemy = spawn_enemy(zone=state['zone'], level=player.level, force_boss=True,
+                                ng=state.get('ng_plus', 0))
+            start_combat(state, enemy, f'You enter the lair. {enemy.name} rises to meet you!', kind='lore')
+
+        elif act == 'final_battle' and final_battle_available(state):
+            enemy = spawn_final_boss(player.level, ng=state.get('ng_plus', 0))
+            start_combat(state, enemy, "The sky splits open. The Chaos Dragon Lord descends upon Dragon's Peak!",
+                         kind='lore')
 
         elif act == 'shop':
-            state['shop_stock'] = generate_shop_stock(player.level)
+            state['shop_stock'] = generate_shop_stock(player.level, player.player_class)
             state['screen'] = 'shop'
         elif act == 'inn':
             state['screen'] = 'inn'
@@ -558,21 +612,104 @@ def action():
         if result == 'victory':
             finish_combat_victory(state)
         elif result == 'defeat':
+            end_combat(state['player'])
             state['screen'] = 'game_over'
             state['combat_enemy'] = None
         elif result == 'fled':
+            end_combat(state['player'])
+            state.pop('return_to', None)
             state['combat_enemy'] = None
             state['screen'] = 'hub'
             add_msg(state, 'warning', 'You fled from the battle!')
         elif result == 'revived':
+            end_combat(state['player'])
+            state.pop('return_to', None)
             state['combat_enemy'] = None
             state['screen'] = 'hub'
-            add_msg(state, 'warning', 'You were revived by a Phoenix Feather!')
+            add_msg(state, 'warning', 'You were revived! Your revive item was used up.')
+
+    elif screen == 'explore':
+        player = state['player']
+        if act == 'back':
+            state['screen'] = 'hub'
+            clear_msgs(state)
+        elif act.startswith('choose_'):
+            try:
+                idx = int(act.split('_')[1])
+            except (IndexError, ValueError):
+                idx = -1
+            options = state.get('explore_options') or []
+            if 0 <= idx < len(options):
+                clear_msgs(state)
+                take_explore_path(state, player, options[idx])
+
+    elif screen == 'node':
+        player = state['player']
+        node = state.get('pending_node')
+        key = act[5:] if act.startswith('node_') else None
+        if node and key in {o['key'] for o in node['options']}:
+            clear_msgs(state)
+            state['pending_node'] = None
+            back = state.get('node_return') or 'hub'
+            state['screen'] = back
+            apply_explore_events(state, player, trades.resolve_node(node, key, player))
+            if state['screen'] == 'explore':
+                after_explore_step(state, player)
+        elif not node:
+            state['screen'] = state.get('node_return') or 'hub'
+
+    elif screen == 'workshop':
+        player = state['player']
+        ws = state.get('workshop') or {}
+        recipes = CRAFTING_RECIPES.get(ws.get('skill'), [])
+        recipe = recipes[ws['recipe']] if 0 <= ws.get('recipe', -1) < len(recipes) else None
+        if act == 'back' or recipe is None:
+            state['screen'] = 'craft'
+            clear_msgs(state)
+        elif act in ('ws_slot_weapon', 'ws_slot_armor'):
+            ws['slot'] = act.rsplit('_', 1)[1]
+        elif act.startswith('ws_profile_') and act[len('ws_profile_'):] in PROFILES:
+            ws['profile'] = act[len('ws_profile_'):]
+        elif act.startswith('ws_add_'):
+            add = act[len('ws_add_'):]
+            ws['additive'] = add if add in trades.usable_additives(player, ws['skill']) else None
+        elif act == 'ws_forge':
+            clear_msgs(state)
+            choice = ws.get('slot', 'weapon') if ws['skill'] == 'Smithing' else ws.get('profile', 'Power')
+            ok, text, _ = trades.bench_craft(player, ws['skill'], recipe, choice, ws.get('additive'))
+            add_msg(state, 'success' if ok else 'danger', text)
+            if ws.get('additive') not in trades.usable_additives(player, ws['skill']):
+                ws['additive'] = None
+
+    elif screen == 'alchemy':
+        player = state['player']
+        pick = state.setdefault('alchemy_pick', [])
+        if act == 'back':
+            state['screen'] = 'craft'
+            state['alchemy_pick'] = []
+            clear_msgs(state)
+        elif act.startswith('alc_pick_'):
+            name = act[len('alc_pick_'):]
+            if name in pick:
+                pick.remove(name)
+            elif name in trades.owned_ingredients(player) and len(pick) < 2:
+                pick.append(name)
+        elif act == 'alc_mix' and len(pick) == 2:
+            clear_msgs(state)
+            kind, text, _ = trades.experiment(player, *pick)
+            add_msg(state, {'discovery': 'levelup', 'known': 'success', 'unstable': 'warning'}.get(kind, 'danger'), text)
+            state['alchemy_pick'] = [n for n in pick if player.resources.get(n, 0) > 0]
+        elif act.startswith('alc_brew_'):
+            clear_msgs(state)
+            ok, text, _ = trades.brew_known(player, act[len('alc_brew_'):])
+            add_msg(state, 'success' if ok else 'danger', text)
 
     elif screen == 'combat_result':
         if act == 'continue':
-            state['screen'] = 'hub'
+            state['screen'] = state.pop('return_to', 'hub')
             state['combat_log'] = []
+            if state['screen'] == 'explore':
+                ensure_explore_options(state)
 
     elif screen == 'shop':
         player = state['player']
@@ -597,26 +734,28 @@ def action():
                     add_msg(state, 'danger', 'Not enough gold!')
 
     elif screen == 'inn':
-        player    = state['player']
-        hp_missing = player.max_hp - player.hp
-        cost = (hp_missing // 10) * 3 + 5
+        player = state['player']
+        full_cost, nap_cost = inn_prices(player)
         if act == 'back':
             state['screen'] = 'hub'
             clear_msgs(state)
-        elif act == 'full_rest':
-            if player.gold >= cost:
-                player.gold -= cost
-                player.hp = player.max_hp
-                player.mp = player.max_mp
-                player.dot = 0
-                add_msg(state, 'success', 'You rest well. HP and MP fully restored!')
+        elif act in ('full_rest', 'nap'):
+            cost = full_cost if act == 'full_rest' else nap_cost
+            if fully_rested(player):
+                add_msg(state, 'dim', "You're already fully rested.")
+            elif player.gold < cost:
+                add_msg(state, 'danger', f'Not enough gold! ({cost}g)')
             else:
-                add_msg(state, 'danger', 'Not enough gold!')
-        elif act == 'nap':
-            player.hp = min(player.max_hp, player.hp + player.max_hp // 2)
-            player.mp = min(player.max_mp, player.mp + player.max_mp // 2)
-            player.dot = 0
-            add_msg(state, 'success', 'You take a short nap. HP/MP partially restored.')
+                player.gold -= cost
+                if act == 'full_rest':
+                    player.hp, player.mp = player.max_hp, player.max_mp
+                    add_msg(state, 'success', f'You rest well. HP and MP fully restored! (-{cost}g)')
+                else:
+                    hp, mp = nap_restore(player)
+                    player.hp += hp
+                    player.mp += mp
+                    add_msg(state, 'success', f'You take a short nap: +{hp} HP, +{mp} MP. (-{cost}g)')
+                reset_depth(state)
 
     elif screen == 'quest_board':
         quest_log = state['quest_log']
@@ -647,6 +786,8 @@ def action():
             if ok:
                 state['zone'] = zone_id
                 state['screen'] = 'hub'
+                state['explore_options'] = None
+                reset_depth(state)
             add_msg(state, 'success' if ok else 'danger', text)
 
     elif screen == 'inventory':
@@ -659,10 +800,17 @@ def action():
                 idx = int(act.split('_')[1])
             except (IndexError, ValueError):
                 idx = -1
-            equippable = [i for i in player.inventory if i.item_type in ('weapon', 'armor')]
+            equippable = [i for i in player.inventory if i.item_type in ('weapon', 'armor', 'accessory')]
             if 0 <= idx < len(equippable):
                 ok, text = player.equip(equippable[idx])
                 add_msg(state, 'success' if ok else 'danger', text)
+        elif act.startswith('temper_'):
+            _, slot, name = act.split('_', 2)
+            ok, text = trades.temper(player, player.equipment.get(slot), name)
+            add_msg(state, 'success' if ok else 'danger', text)
+        elif act in ('upgrade_weapon', 'upgrade_armor'):
+            ok, text = player.upgrade_equipped(act.split('_', 1)[1])
+            add_msg(state, 'success' if ok else 'danger', text)
         elif act.startswith('use_'):
             try:
                 idx = int(act.split('_')[1])
@@ -720,8 +868,18 @@ def action():
             clear_msgs(state)
         elif act.startswith('gather_'):
             skill_name = act.split('_', 1)[1]  # e.g. "gather_Mining" → "Mining"
-            result = gather_resource(player, state['zone'], skill_name)
-            if result is None:
+            clear_msgs(state)
+            node = special_node_for(player, state['zone'], skill_name)
+            if node:
+                add_msg(state, 'info', 'Something unusual catches your eye…')
+                open_node(state, node, return_to='gather')
+                result = None
+                skill_name = None
+            else:
+                result = gather_resource(player, state['zone'], skill_name)
+            if skill_name is None:
+                pass
+            elif result is None:
                 add_msg(state, 'warning', f'Your {skill_name} level is too low to gather here. Level up first!')
             else:
                 res_name, qty, xp, leveled_up = result
@@ -737,6 +895,21 @@ def action():
             clear_msgs(state)
         elif act.startswith('tab_'):
             state['craft_skill'] = act.split('_', 1)[1]
+        elif act == 'alchemy':
+            clear_msgs(state)
+            state['alchemy_pick'] = []
+            state['screen'] = 'alchemy'
+        elif act.startswith('forge_'):
+            try:
+                idx = int(act.split('_', 1)[1])
+            except ValueError:
+                idx = -1
+            recipes = CRAFTING_RECIPES.get(state['craft_skill'], [])
+            if 0 <= idx < len(recipes) and recipes[idx]['output_type'] in ('forge', 'fletch'):
+                clear_msgs(state)
+                state['workshop'] = {'skill': state['craft_skill'], 'recipe': idx, 'slot': 'weapon',
+                                     'profile': 'Power', 'additive': None}
+                state['screen'] = 'workshop'
         elif act.startswith('craft_'):
             parts = act.split('_', 2)
             if len(parts) == 3:
@@ -749,10 +922,19 @@ def action():
                                           player_class=player.player_class)
                 add_msg(state, 'success' if ok else 'danger', text)
 
+    elif screen == 'ending':
+        if act == 'new_game_plus':
+            start_new_game_plus(state)
+        elif act == 'continue':
+            state['screen'] = 'hub'
+
     elif screen == 'game_over':
         if act == 'restart':
             state = fresh_state()
 
+    if state.get('player'):
+        for msg in state['player'].pop_unlocks():
+            add_msg(state, 'levelup', msg)
     save_state(state)
     return redirect(url_for('index'))
 

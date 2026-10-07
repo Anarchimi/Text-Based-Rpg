@@ -1,0 +1,28 @@
+  {% set p = state.player %}
+  {% set prices = inn_prices(p) %}
+  <form method="post" action="/action">
+    <button class="back-btn" name="action" value="back">← Back</button>
+  </form>
+  <p class="page-title">The Rusty Flagon Inn</p>
+  <div class="card">
+    <p style="color:var(--dim);font-size:13px;margin-bottom:10px;">"Welcome, traveler. Rest your weary bones."</p>
+    <div style="font-size:13px;margin-bottom:4px;">HP: <span style="color:var(--green)">{{ p.hp }}/{{ p.max_hp }}</span></div>
+    <div style="font-size:13px;margin-bottom:10px;">MP: <span style="color:var(--blue)">{{ p.mp }}/{{ p.max_mp }}</span></div>
+    <div style="font-size:13px;color:var(--dim);">Your gold: <span style="color:var(--yellow)">{{ p.gold }}g</span>{% if state.depth %} · resting resets trail depth {{ state.depth }}{% endif %}</div>
+  </div>
+
+  {% if state.messages %}
+  <div class="msgs">{% for m in state.messages %}<div class="msg msg-{{ m.kind }}">{{ m.text }}</div>{% endfor %}</div>
+  {% endif %}
+
+  <form method="post" action="/action">
+    {% if fully_rested(p) %}
+    <div class="msg msg-success">You're fully rested — no need to pay for a room.</div>
+    <button class="btn-dim" disabled>🛏 Full Rest <span class="ability-desc">Already at full HP &amp; MP</span></button>
+    <button class="btn-dim" disabled>💤 Nap <span class="ability-desc">Already at full HP &amp; MP</span></button>
+    {% else %}
+    {% set nap = nap_restore(p) %}
+    <button class="{{ 'btn-green' if p.gold >= prices[0] else 'btn-dim' }}" name="action" value="full_rest">🛏 Full Rest — {{ prices[0] }}g <span class="ability-desc">Restore all HP &amp; MP</span></button>
+    <button class="{{ '' if p.gold >= prices[1] else 'btn-dim' }}" name="action" value="nap">💤 Nap — {{ prices[1] }}g <span class="ability-desc">Restore half of what's missing: +{{ nap[0] }} HP, +{{ nap[1] }} MP</span></button>
+    {% endif %}
+  </form>

@@ -1,0 +1,12 @@
+{# Skill milestones: reached ones (✓) and the next unlock. Import: {% from 'partials/milestones.html' import milestones %} #}
+{% macro milestones(p, skill) %}
+  {% set table = trade_milestones.get(skill, {}) %}
+  {% if table %}
+  {% set lv = p.gathering_skills.get(skill, p.crafting_skills.get(skill, {'level': 0})).level %}
+  <div class="milestones">
+    {% for m in table | sort %}{% if lv >= m %}<div class="ms-done" title="{{ table[m][1] }}">✓ Lv {{ m }} {{ table[m][0] }}</div>{% endif %}{% endfor %}
+    {% set nm = next_milestone(p, skill) %}
+    {% if nm %}<div class="ms-next">Next · Lv {{ nm[0] }} {{ nm[1] }}: {{ nm[2] }}</div>{% endif %}
+  </div>
+  {% endif %}
+{% endmacro %}

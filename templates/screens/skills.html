@@ -1,0 +1,63 @@
+  {% set p = state.player %}
+  <form method="post" action="/action">
+    <button class="back-btn" name="action" value="back">← Back</button>
+  </form>
+  <p class="page-title">Skill Tree</p>
+  <div style="font-size:14px;color:var(--yellow);margin-bottom:12px;">Skill Points: {{ p.skill_points }}</div>
+
+  {% if state.messages %}
+  <div class="msgs">{% for m in state.messages %}<div class="msg msg-{{ m.kind }}">{{ m.text }}</div>{% endfor %}</div>
+  {% endif %}
+
+  {% if p.skills_learned %}
+  <div class="card-head">Learned — {{ p.player_class }} Skills</div>
+  <div class="card">
+    {% for sk in p.skills_learned %}
+    <div style="font-size:13px;color:var(--green);padding:4px 0;">✓ {{ sk.name }} <span style="color:var(--dim);">— {{ sk.desc }}</span></div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% set avail = p.available_skills() %}
+  {% if avail %}
+  <div class="card-head">Available — {{ p.player_class }} Skills</div>
+  <form method="post" action="/action">
+    {% for i, sk in enumerate(avail) %}
+    <button class="{% if p.skill_points >= sk.cost %}btn-green{% else %}btn-dim{% endif %}"
+            name="action" value="learn_{{ i }}"
+            {% if p.skill_points < sk.cost %}disabled{% endif %}>
+      {{ sk.name }} <span style="color:var(--dim);font-size:12px;">— {{ sk.desc }}</span>
+      <span style="color:var(--yellow);font-size:12px;display:block;margin-top:2px;">Cost: {{ sk.cost }} SP</span>
+    </button>
+    {% endfor %}
+  </form>
+  {% else %}
+  <div style="color:var(--dim);text-align:center;padding:10px 0;">All class skills learned!</div>
+  {% endif %}
+
+  {% if p.profession %}
+  <hr>
+  <div class="card-head" style="color:var(--cyan);">{{ p.profession }} Specialization</div>
+  {% if p.prof_skills_learned %}
+  <div class="card">
+    {% for sk in p.prof_skills_learned %}
+    <div style="font-size:13px;color:var(--cyan);padding:4px 0;">✓ {{ sk.name }} <span style="color:var(--dim);">— {{ sk.desc }}</span></div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% set prof_avail = p.available_prof_skills() %}
+  {% if prof_avail %}
+  <form method="post" action="/action">
+    {% for i, sk in enumerate(prof_avail) %}
+    <button class="{% if p.skill_points >= sk.cost %}btn-cyan{% else %}btn-dim{% endif %}"
+            name="action" value="learn_prof_{{ i }}"
+            {% if p.skill_points < sk.cost %}disabled{% endif %}>
+      {{ sk.name }} <span style="color:var(--dim);font-size:12px;">— {{ sk.desc }}</span>
+      <span style="color:var(--yellow);font-size:12px;display:block;margin-top:2px;">Cost: {{ sk.cost }} SP</span>
+    </button>
+    {% endfor %}
+  </form>
+  {% else %}
+  <div style="color:var(--dim);text-align:center;padding:10px 0;">All specialization skills learned!</div>
+  {% endif %}
+  {% endif %}

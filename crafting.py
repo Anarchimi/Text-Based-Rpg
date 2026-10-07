@@ -39,6 +39,9 @@ ZONE_RESOURCES = {
 
 # ── Crafting recipes ──────────────────────────────────────────────────────────
 # output_type: "resource" → adds to player.resources
+#              "forge" / "fletch" → open the workshop (trades.forge / trades.fletch): choose slot or profile + additive
+#              "utility" → Fletcher tools (Hunting Trap, Camping Kit, Smoke Arrow), category "utility"
+#              "meal" → multi-fight meals (trades.MEALS)
 #              "weapon" / "armor" → generates item at level_param
 #              "consumable" → creates Item directly with effect/effect_value/effect_duration
 CRAFTING_RECIPES = {
@@ -49,12 +52,12 @@ CRAFTING_RECIPES = {
         {"name":"Mithril Bar",       "inputs":{"Mithril Ore":1,"Coal":2},        "output_type":"resource","output_name":"Mithril Bar",     "req":11, "xp":75},
         {"name":"Adamantite Bar",    "inputs":{"Adamantite Ore":1,"Coal":3},     "output_type":"resource","output_name":"Adamantite Bar",  "req":14, "xp":95},
         {"name":"Dragon Bar",        "inputs":{"Dragon Metal":2,"Coal":4},       "output_type":"resource","output_name":"Dragon Bar",      "req":18, "xp":120},
-        {"name":"Bronze Weapon",     "inputs":{"Bronze Bar":2},                  "output_type":"weapon",  "level_param":3,                "req":2,  "xp":35},
-        {"name":"Iron Weapon",       "inputs":{"Iron Bar":2},                    "output_type":"weapon",  "level_param":6,                "req":6,  "xp":60},
-        {"name":"Steel Weapon",      "inputs":{"Steel Bar":2},                   "output_type":"weapon",  "level_param":9,                "req":9,  "xp":80},
-        {"name":"Mithril Weapon",    "inputs":{"Mithril Bar":2},                 "output_type":"weapon",  "level_param":13,               "req":12, "xp":100},
-        {"name":"Adamantite Weapon", "inputs":{"Adamantite Bar":2},              "output_type":"weapon",  "level_param":17,               "req":15, "xp":125},
-        {"name":"Dragon Weapon",     "inputs":{"Dragon Bar":2},                  "output_type":"weapon",  "level_param":21,               "req":19, "xp":150},
+        {"name":"Bronze Gear",     "inputs":{"Bronze Bar":2},                  "output_type":"forge", "metal":"Bronze",   "req":2,  "xp":35},
+        {"name":"Iron Gear",       "inputs":{"Iron Bar":2},                    "output_type":"forge", "metal":"Iron",   "req":6,  "xp":60},
+        {"name":"Steel Gear",      "inputs":{"Steel Bar":2},                   "output_type":"forge", "metal":"Steel",   "req":9,  "xp":80},
+        {"name":"Mithril Gear",    "inputs":{"Mithril Bar":2},                 "output_type":"forge", "metal":"Mithril",   "req":12, "xp":100},
+        {"name":"Adamantite Gear", "inputs":{"Adamantite Bar":2},              "output_type":"forge", "metal":"Adamantite",   "req":15, "xp":125},
+        {"name":"Dragon Gear",     "inputs":{"Dragon Bar":2},                  "output_type":"forge", "metal":"Dragon",   "req":19, "xp":150},
     ],
     "Herblore": [
         {"name":"Attack Potion",  "inputs":{"Guam Leaf":1},                 "output_type":"consumable","effect":"temp_buff_str","effect_value":8, "effect_duration":3,"output_name":"Attack Potion",  "req":1, "xp":30},
@@ -73,46 +76,72 @@ CRAFTING_RECIPES = {
         {"name":"Cooked Lobster",   "inputs":{"Raw Lobster":1},   "output_type":"consumable","effect":"heal_pct","effect_value":40,"output_name":"Cooked Lobster",   "req":12,"xp":55},
         {"name":"Cooked Swordfish", "inputs":{"Raw Swordfish":1}, "output_type":"consumable","effect":"heal_pct","effect_value":50,"output_name":"Cooked Swordfish", "req":14,"xp":65},
         {"name":"Cooked Shark",     "inputs":{"Raw Shark":1},     "output_type":"consumable","effect":"heal_pct","effect_value":65,"output_name":"Cooked Shark",     "req":16,"xp":80},
+        {"name":"Cooked Monkfish",  "inputs":{"Raw Monkfish":1},  "output_type":"consumable","effect":"heal_pct","effect_value":45,"output_name":"Cooked Monkfish",  "req":13,"xp":60},
         {"name":"Cooked Anglerfish","inputs":{"Raw Anglerfish":1},"output_type":"consumable","effect":"heal_pct","effect_value":90,"output_name":"Cooked Anglerfish","req":18,"xp":100},
+        {"name":"Hearty Fish Stew",  "inputs":{"Raw Trout":2,"Raw Salmon":1},       "output_type":"meal","output_name":"Hearty Fish Stew",  "req":7, "xp":70},
+        {"name":"Spiced Swordfish",  "inputs":{"Raw Swordfish":1,"Raw Lobster":1},  "output_type":"meal","output_name":"Spiced Swordfish",  "req":12,"xp":90},
+        {"name":"Dragonfire Chowder","inputs":{"Raw Dark Crab":1,"Raw Anglerfish":1},"output_type":"meal","output_name":"Dragonfire Chowder","req":18,"xp":120},
+        {"name":"Trophy Feast (Trout)",  "inputs":{"Large Trout":1},         "output_type":"meal","output_name":"Trophy Feast","req":10,"xp":100},
+        {"name":"Trophy Feast (Salmon)", "inputs":{"Trophy Salmon":1},       "output_type":"meal","output_name":"Trophy Feast","req":10,"xp":100},
+        {"name":"Trophy Feast (Golden)", "inputs":{"Ancient Golden Trout":1},"output_type":"meal","output_name":"Trophy Feast","req":10,"xp":100},
+        {"name":"Trophy Feast (Voidfin)","inputs":{"Voidfin":1},             "output_type":"meal","output_name":"Trophy Feast","req":10,"xp":100},
+        {"name":"Trophy Feast (Leviathan)","inputs":{"Emberscale Leviathan":1},"output_type":"meal","output_name":"Trophy Feast","req":10,"xp":100},
+        {"name":"River King Feast",      "inputs":{"Ashvale River King":1},  "output_type":"meal","output_name":"River King Feast","req":10,"xp":200},
         {"name":"Dark Crab Meat",   "inputs":{"Raw Dark Crab":1}, "output_type":"consumable","effect":"heal_overheal","effect_value":80,"output_name":"Dark Crab Meat","req":19,"xp":100},
     ],
     "Fletching": [
-        {"name":"Wooden Staff",   "inputs":{"Normal Logs":2}, "output_type":"weapon","level_param":2, "req":1, "xp":30},
-        {"name":"Oak Shortbow",   "inputs":{"Oak Logs":2},    "output_type":"weapon","level_param":5, "req":5, "xp":45},
-        {"name":"Willow Bow",     "inputs":{"Willow Logs":2}, "output_type":"weapon","level_param":8, "req":9, "xp":60},
-        {"name":"Maple Longbow",  "inputs":{"Maple Logs":2},  "output_type":"weapon","level_param":12,"req":12,"xp":80},
-        {"name":"Yew Longbow",    "inputs":{"Yew Logs":2},    "output_type":"weapon","level_param":16,"req":16,"xp":100},
-        {"name":"Elder Bow",      "inputs":{"Elder Logs":2},  "output_type":"weapon","level_param":21,"req":19,"xp":130},
+        {"name":"Wooden Staff",   "inputs":{"Normal Logs":2}, "output_type":"fletch","wood":"Normal","kind":"Staff",   "req":1, "xp":30},
+        {"name":"Oak Shortbow",   "inputs":{"Oak Logs":2},    "output_type":"fletch","wood":"Oak",   "kind":"Shortbow","req":5, "xp":45},
+        {"name":"Willow Bow",     "inputs":{"Willow Logs":2}, "output_type":"fletch","wood":"Willow","kind":"Bow",     "req":9, "xp":60},
+        {"name":"Maple Longbow",  "inputs":{"Maple Logs":2},  "output_type":"fletch","wood":"Maple", "kind":"Longbow", "req":12,"xp":80},
+        {"name":"Yew Longbow",    "inputs":{"Yew Logs":2},    "output_type":"fletch","wood":"Yew",   "kind":"Longbow", "req":16,"xp":100},
+        {"name":"Elder Bow",      "inputs":{"Elder Logs":2},  "output_type":"fletch","wood":"Elder", "kind":"Bow",     "req":19,"xp":130},
+        {"name":"Hunting Trap",   "inputs":{"Normal Logs":2},                   "output_type":"utility","utility":"arm_trap",     "output_name":"Hunting Trap", "req":4, "xp":35},
+        {"name":"Camping Kit",    "inputs":{"Oak Logs":2,"Willow Logs":1},      "output_type":"utility","utility":"camp_kit",     "output_name":"Camping Kit",  "req":10,"xp":70},
+        {"name":"Smoke Arrow",    "inputs":{"Maple Logs":1},                    "output_type":"utility","utility":"smoke_escape", "output_name":"Smoke Arrow",  "req":12,"xp":60},
     ],
 }
 
 # ── Trade professions ─────────────────────────────────────────────────────────
+# Each trade: +50% XP in its two skills, a crafting perk and a perk outside crafting.
+# Perk logic: craft_item() here, Player.use_consumable / items.upgrade_cost, world.py trail.
 TRADE_PROFESSIONS = {
     "Blacksmith": {
-        "desc": "Expert in Mining & Smithing. +50% gathering/crafting XP for those skills. Start with iron ores.",
+        "desc": "Mining & Smithing expert.",
         "bonus_skills": ["Mining", "Smithing"],
+        "perks": ["Masterwork: better forging odds (quality roll +10%).",
+                  "Forgemaster: gear upgrades cost 30% less gold and one fewer bar."],
         "start_resources": {"Iron Ore": 5, "Coal": 3},
         "icon": "⚒",
     },
     "Alchemist": {
-        "desc": "Master herbalist & brewer. +50% XP for Herbalism & Herblore. Start with herbs.",
+        "desc": "Herbalism & Herblore master.",
         "bonus_skills": ["Herbalism", "Herblore"],
+        "perks": ["Double Brew: 30% chance to brew two potions.",
+                  "Potency: potions you drink are 50% stronger."],
         "start_resources": {"Guam Leaf": 5, "Marrentill": 3},
         "icon": "⚗",
     },
     "Fisher": {
-        "desc": "Skilled angler & cook. +50% XP for Fishing & Cooking. Start with fresh fish.",
+        "desc": "Fishing & Cooking specialist.",
         "bonus_skills": ["Fishing", "Cooking"],
+        "perks": ["Big Catch: 30% chance to cook two meals.",
+                  "Hearty Meals: food heals 50% more and restores MP too."],
         "start_resources": {"Raw Trout": 5},
         "icon": "🎣",
     },
-    "Ranger": {
-        "desc": "Woodsman & fletcher. +50% XP for Woodcutting & Fletching. Start with oak logs.",
+    "Fletcher": {
+        "desc": "Woodcutting & Fletching woodsman.",
         "bonus_skills": ["Woodcutting", "Fletching"],
+        "perks": ["Masterwork: better fletching odds (quality roll +10%).",
+                  "Woodsman's Eye: on the trail, forage paths lead to timber (+1 wood) and treasure traps are half as likely."],
         "start_resources": {"Oak Logs": 5, "Normal Logs": 3},
         "icon": "🏹",
     },
 }
+MASTERWORK_SKILLS = {"Blacksmith": "Smithing", "Fletcher": "Fletching"}
+DOUBLE_CRAFT_SKILLS = {"Alchemist": "Herblore", "Fisher": "Cooking"}
+DOUBLE_CRAFT_CHANCE = 0.30
 
 GATHERING_SKILLS = ["Mining", "Woodcutting", "Fishing", "Herbalism"]
 CRAFTING_SKILLS  = ["Smithing", "Fletching", "Cooking", "Herblore"]
@@ -192,6 +221,8 @@ def craft_item(player, skill_name, recipe_idx, player_class=None):
         return False, "Invalid recipe.", None
 
     recipe = recipes[recipe_idx]
+    if recipe["output_type"] in ("forge", "fletch"):
+        return False, "Gear is made at the workshop — open it from this recipe.", None
     skill_data = getattr(player, 'crafting_skills', {}).get(skill_name, {"level": 1, "xp": 0})
 
     if skill_data["level"] < recipe["req"]:
@@ -216,24 +247,33 @@ def craft_item(player, skill_name, recipe_idx, player_class=None):
         player.add_resource(recipe["output_name"], 1)
         return True, f"Crafted {recipe['output_name']}! (+{raw_xp} XP){lv_msg}", None
 
-    if out_type in ("weapon", "armor"):
-        pc = player_class or getattr(player, 'player_class', None)
-        if out_type == "weapon":
-            item = generate_weapon(player_class=pc, level=recipe["level_param"], rarity="Uncommon")
-        else:
-            item = generate_armor(level=recipe.get("level_param", 5), rarity="Uncommon")
-        item.name = f"Crafted {recipe['name']}"
+    if out_type == "utility":
+        from trades import UTILITY_TEXT
+        item = Item(recipe["output_name"], "consumable", "Common", 25, effect=recipe["utility"])
+        item.category = "utility"
         player.add_item(item)
-        return True, f"Crafted {item.name}! (+{raw_xp} XP){lv_msg}", item
+        return True, f"Crafted {item.name}: {UTILITY_TEXT[recipe['utility']]} (+{raw_xp} XP){lv_msg}", item
+
+    if out_type == "meal":
+        from trades import MEALS, meal_text
+        item = Item(recipe["output_name"], "consumable", "Common", 40, effect="meal")
+        item.category, item.meal = "meal", recipe["output_name"]
+        player.add_item(item)
+        return True, f"Cooked {item.name}: {meal_text(item.meal)}. Eat it before a fight. (+{raw_xp} XP){lv_msg}", item
 
     if out_type == "consumable":
         eff     = recipe["effect"]
         eff_val = recipe["effect_value"]
         eff_dur = recipe.get("effect_duration", 0)
         value   = max(10, eff_val * 3)
-        item = Item(recipe["output_name"], "consumable", "Common", value,
-                    effect=eff, effect_value=eff_val, effect_duration=eff_dur)
-        player.add_item(item)
-        return True, f"Crafted {recipe['output_name']}! (+{raw_xp} XP){lv_msg}", item
+        copies = 2 if DOUBLE_CRAFT_SKILLS.get(tp) == skill_name and random.random() < DOUBLE_CRAFT_CHANCE else 1
+        for _ in range(copies):
+            item = Item(recipe["output_name"], "consumable", "Common", value,
+                        effect=eff, effect_value=eff_val, effect_duration=eff_dur)
+            if skill_name == "Cooking":
+                item.category = "food"
+            player.add_item(item)
+        extra = " ×2!" if copies == 2 else ""
+        return True, f"Crafted {recipe['output_name']}{extra}! (+{raw_xp} XP){lv_msg}", item
 
     return False, "Unknown output type.", None

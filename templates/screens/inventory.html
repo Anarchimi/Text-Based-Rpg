@@ -1,0 +1,97 @@
+{% from 'partials/item.html' import item_stats, compare %}
+  {% set p = state.player %}
+  <form method="post" action="/action">
+    <button class="back-btn" name="action" value="back">← Back</button>
+  </form>
+  <p class="page-title">Inventory</p>
+  <div style="font-size:13px;color:var(--yellow);margin-bottom:10px;">Gold: {{ p.gold }}g</div>
+
+  {% if state.messages %}
+  <div class="msgs">{% for m in state.messages %}<div class="msg msg-{{ m.kind }}">{{ m.text }}</div>{% endfor %}</div>
+  {% endif %}
+
+  <div class="card-head">Equipped</div>
+  <div class="card">
+    {% for slot in ['weapon', 'armor', 'accessory'] %}
+    {% set it = p.equipment.get(slot) %}
+    <div class="item-row">
+      <div class="item-info">
+        <div style="font-size:13px;">{{ slot | capitalize }}: <span class="{% if it %}r-{{ it.rarity }}{% endif %}">{{ it.name if it else '—' }}</span></div>
+        {% if it %}{{ item_stats(it) }}{% endif %}
+        {% set cost = upgrade_cost(it, p) if it else none %}
+        {% if cost %}
+        {% set have = p.resources.get(cost[1], 0) %}
+        <div class="item-meta">Upgrade to +{{ it.upgrade + 1 }}: {{ cost[0] }}g + {{ cost[2] }}× {{ cost[1] }}
+          <span class="{% if have >= cost[2] %}have-yes{% else %}have-no{% endif %}">(have {{ have }})</span></div>
+        {% elif it %}<div class="item-meta" style="color:var(--yellow)">Fully upgraded</div>{% endif %}
+        {% for tname, ttext, tgold, tbar in trades.temper_options(p, it) %}
+        <form method="post" action="/action" style="margin-top:4px;">
+          <button class="btn-sm {{ 'btn-purple' if p.gold >= tgold and p.resources.get(tbar, 0) else 'btn-dim' }}" name="action" value="temper_{{ slot }}_{{ tname }}">
+            🔥 Temper: {{ tname }} <span class="ability-desc">{{ ttext }} · {{ tgold }}g + 1× {{ tbar }} (have {{ p.resources.get(tbar, 0) }}) · once only</span></button>
+        </form>
+        {% endfor %}
+      </div>
+      {% if cost %}
+      <div class="item-actions">
+        <form method="post" action="/action">
+          <button class="btn-sm {% if p.gold >= cost[0] and have >= cost[2] %}btn-yellow{% else %}btn-dim{% endif %}" name="action" value="upgrade_{{ slot }}">⚒ Upgrade</button>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  {% set equippable  = p.inventory | selectattr('item_type', 'in', ['weapon', 'armor', 'accessory']) | list %}
+  {% set consumables = p.inventory | selectattr('item_type', 'eq', 'consumable') | list %}
+
+  {% if equippable %}
+  <div class="card-head">Gear</div>
+  <div class="card">
+    {% for i, item in enumerate(equippable) %}
+    <div class="item-row">
+      <div class="item-info">
+        <div class="item-name r-{{ item.rarity }}">[{{ item.rarity }}] {{ item.name }}</div>
+        <div class="item-meta">{{ item.item_type }} · Worth {{ item.value }}g</div>
+        {{ item_stats(item) }}
+        {{ compare(item, p.equipment.get(item.item_type)) }}
+      </div>
+      <div class="item-actions">
+        <form method="post" action="/action">
+          <button class="btn-sm btn-green" name="action" value="equip_{{ i }}">Equip</button>
+        </form>
+        <form method="post" action="/action">
+          <button class="btn-sm btn-dim" name="action" value="sell_{{ p.inventory.index(item) }}">Sell</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if consumables %}
+  <div class="card-head">Consumables</div>
+  <div class="card">
+    {% for i, item in enumerate(consumables) %}
+    {% set inv_idx = p.inventory.index(item) %}
+    <div class="item-row">
+      <div class="item-info">
+        <div class="item-name">{{ item.name }}</div>
+        <div class="item-meta">{% if item.category == 'meal' %}🍲 Meal · {{ trades.meal_text(item.meal) }} · eat before a fight{% elif item.category == 'utility' %}🧰 {{ trades.UTILITY_TEXT[item.effect] }}{% else %}{{ item.effect | replace('_', ' ') }}{% endif %} · Worth {{ item.value }}g</div>
+      </div>
+      <div class="item-actions">
+        <form method="post" action="/action">
+          <button class="btn-sm btn-green" name="action" value="use_{{ i }}">Use</button>
+        </form>
+        <form method="post" action="/action">
+          <button class="btn-sm btn-dim" name="action" value="sell_{{ inv_idx }}">Sell</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if not p.inventory %}
+  <div style="color:var(--dim);text-align:center;padding:20px 0;">Inventory is empty.</div>
+  {% endif %}

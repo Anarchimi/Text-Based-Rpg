@@ -1,0 +1,61 @@
+{% from 'partials/milestones.html' import milestones %}
+  {% set p = state.player %}
+  {% set cur_zone_res = zone_resources.get(state.zone, {}) %}
+  <form method="post" action="/action">
+    <button class="back-btn" name="action" value="back">← Back</button>
+  </form>
+  <p class="page-title">Gather — {{ zones[state.zone].name }}</p>
+
+  {% if p.resources %}
+  <div class="res-summary">
+    <b style="color:var(--cyan);">Resources:</b> {% for rname, rqty in p.resources.items() %}<span>{{ rname }} ×{{ rqty }}</span>{% if not loop.last %} · {% endif %}{% endfor %}
+  </div>
+  {% endif %}
+
+  {% if state.messages %}
+  <div class="msgs">{% for m in state.messages %}<div class="msg msg-{{ m.kind }}">{{ m.text }}</div>{% endfor %}</div>
+  {% endif %}
+
+  <form method="post" action="/action">
+    {% for skill_name in gathering_skills %}
+    {% set sk_data = p.gathering_skills[skill_name] %}
+    {% set sk_lv = sk_data.level %}
+    {% set sk_xp = sk_data.xp %}
+    {% set xp_start = (sk_lv * (sk_lv - 1) * 50)|int %}
+    {% set xp_need = sk_lv * 100 %}
+    {% set xp_in_lv = sk_xp - xp_start %}
+    {% set xp_pct = [(xp_in_lv * 100 // xp_need), 100]|min if xp_need > 0 else 0 %}
+    {% set zone_skill_res = cur_zone_res.get(skill_name, []) %}
+    <div class="gather-block">
+      <div class="gather-hdr">
+        <span class="gather-icon">{{ skill_icons.get(skill_name, '?') }}</span>
+        <span class="gather-skill-name">{{ skill_name }}</span>
+        <span class="gather-lv">Lv {{ sk_lv }}</span>
+      </div>
+      <div class="bar-row" style="margin-bottom:8px;">
+        <div class="bar-lbl" style="font-size:10px;">XP</div>
+        <div class="bar-track"><div class="bar-fill bar-sk" style="width:{{ xp_pct }}%"></div></div>
+        <div class="bar-nums" style="color:var(--cyan);font-size:10px;">{{ xp_in_lv }}/{{ xp_need }}</div>
+      </div>
+      {{ milestones(p, skill_name) }}
+      {% if skill_name == 'Fishing' and p.trophies %}
+      <div class="milestones">🏆 Catch log: {% for f, n in p.trophies.items() %}{{ f }} ×{{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</div>
+      {% endif %}
+      {% if zone_skill_res %}
+      <div class="gather-resources-list">
+        {% for res_name, wt, req_lv in zone_skill_res %}
+        {% if sk_lv >= req_lv %}
+        <span class="unlocked">{{ res_name }}</span>
+        {% else %}
+        <span class="locked-res">🔒 {{ res_name }} (Lv {{ req_lv }})</span>
+        {% endif %}
+        {% if not loop.last %} · {% endif %}
+        {% endfor %}
+      </div>
+      <button class="btn-cyan" name="action" value="gather_{{ skill_name }}">{{ gather_button_labels.get(skill_name, 'Gather') }}</button>
+      {% else %}
+      <div style="font-size:12px;color:var(--dim);">Nothing to gather here.</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </form>

@@ -1,0 +1,18 @@
+  <p class="page-title">Choose Your Trade</p>
+  <p style="color:var(--dim);font-size:13px;margin-bottom:14px;">
+    Your trade shapes how you gather and craft — and how you adventure. Each gives +50% XP in two skills, a crafting perk and a perk in the field.
+  </p>
+  <form method="post" action="/action">
+    {% for tp_name, tp_data in trade_professions.items() %}
+    <div class="prof-card" style="border-color:var(--yellow);">
+      <div class="prof-card-name" style="color:var(--yellow);">{{ tp_data.icon }} {{ tp_name }}</div>
+      <div class="prof-card-passive">{{ tp_data.desc }}</div>
+      {% for perk in tp_data.perks %}<div class="prof-card-passive" style="margin-top:4px;">✦ {{ perk }}</div>{% endfor %}
+      <div class="prof-card-stats">
+        Bonus skills: {{ tp_data.bonus_skills | join(' & ') }}<br>
+        Starts with: {% for res, qty in tp_data.start_resources.items() %}{{ qty }}× {{ res }}{% if not loop.last %}, {% endif %}{% endfor %}
+      </div>
+      <button class="btn-yellow btn-center" name="action" value="{{ tp_name }}">Choose {{ tp_name }}</button>
+    </div>
+    {% endfor %}
+  </form>

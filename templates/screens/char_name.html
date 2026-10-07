@@ -1,0 +1,15 @@
+  <p class="page-title">Create Your Hero</p>
+  <p style="color:var(--dim);font-size:13px;line-height:1.8;margin-bottom:20px;">
+    In the Shattered Realm, darkness grows.<br>
+    Ancient evils stir. Villages burn.<br>
+    Only a true hero can restore the balance.
+  </p>
+  <form method="post" action="/action">
+    <label class="field-lbl" for="hname">Hero's Name</label>
+    <input class="field-input" type="text" id="hname" name="name"
+           placeholder="Enter your name…" autocomplete="off"
+           autocorrect="off" autocapitalize="words" spellcheck="false"
+           maxlength="20" required>
+    <input type="hidden" name="action" value="submit_name">
+    <button class="btn-cyan btn-center">Continue &rarr;</button>
+  </form>
