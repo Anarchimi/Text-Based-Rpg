@@ -142,6 +142,25 @@ def check_profession_unlock(state, player, fallback_screen):
 
 # ── Combat logic ──────────────────────────────────────────────────────────────
 
+SHIELD_BASH_STUN_CHANCE = 0.35
+
+
+def hit_player(player, dmg, clog):
+    """Apply incoming enemy damage after Evasion / Mana Shield. Returns HP lost."""
+    if 'Evasion' in player.buffs:
+        del player.buffs['Evasion']
+        clog('buff', 'You evade the attack!')
+        return 0
+    if 'Mana Shield' in player.buffs:
+        absorbed = min(player.mp, dmg // 2)
+        if absorbed:
+            player.mp -= absorbed
+            dmg -= absorbed
+            clog('buff', f'Mana Shield absorbs {absorbed} damage!')
+    player.hp = max(0, player.hp - dmg)
+    return dmg
+
+
 def do_combat_turn(state, action, ability_idx=None, item_idx=None):
     player = state['player']
     enemy  = state['combat_enemy']
@@ -213,6 +232,10 @@ def do_combat_turn(state, action, ability_idx=None, item_idx=None):
                     clog('crit', '★ CRITICAL!')
                 clog('player', f'{picked.name}: {actual} damage!')
 
+                if picked.name == 'Shield Bash' and random.random() < SHIELD_BASH_STUN_CHANCE:
+                    enemy.stunned = True
+                    clog('stun', f'{enemy.name} is stunned next turn!')
+
                 # Elementalist Burn passive
                 if player.profession == 'Elementalist' and random.random() < 0.30:
                     enemy.dot = max(enemy.dot, 4)
@@ -273,8 +296,10 @@ def do_combat_turn(state, action, ability_idx=None, item_idx=None):
             enemy.stunned = False
         else:
             sdmg = max(1, int(enemy.atk * 1.3 + bonus) - player.defense)
-            player.hp = max(0, player.hp - sdmg)
-            clog('enemy', f'{enemy.name} uses {ability_name}! -{sdmg} HP')
+            clog('enemy', f'{enemy.name} uses {ability_name}!')
+            lost = hit_player(player, sdmg, clog)
+            if lost:
+                clog('enemy', f'-{lost} HP')
     else:
         if enemy.stunned:
             clog('warning', f'{enemy.name} is stunned and misses!')
@@ -284,8 +309,9 @@ def do_combat_turn(state, action, ability_idx=None, item_idx=None):
             if was_stunned:
                 clog('warning', f'{enemy.name} was stunned and missed!')
             else:
-                player.hp = max(0, player.hp - dmg)
-                clog('enemy', f'{enemy.name} attacks: -{dmg} HP')
+                lost = hit_player(player, dmg, clog)
+                if lost:
+                    clog('enemy', f'{enemy.name} attacks: -{lost} HP')
 
     expired = player.tick_buffs()
     if player.dot > 0:

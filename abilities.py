@@ -25,7 +25,7 @@ class Ability:
 # ── Warrior Abilities ────────────────────────────────────────────────────────
 WARRIOR_ABILITIES = [
     Ability("Slash",        6,  "A powerful sword strike",                       "damage", 18, 1),
-    Ability("Shield Bash",  8,  "Stuns with a shield blow (bonus damage)",        "damage", 22, 3),
+    Ability("Shield Bash",  8,  "Shield blow with a 35% chance to stun",          "damage", 22, 3),
     Ability("Battle Cry",   10, "Boosts ATK temporarily (+20% for 3 turns)",      "buff",   20, 5,  "self"),
     Ability("Whirlwind",    15, "Strike all enemies (AoE) with spinning blade",   "damage", 30, 7),
     Ability("Berserk",      20, "Double attack power, halve defense for 2 turns", "buff",   40, 10, "self"),
@@ -37,7 +37,7 @@ MAGE_ABILITIES = [
     Ability("Fireball",     8,  "Launch a burning fireball at the enemy",         "damage", 22, 1),
     Ability("Ice Lance",    6,  "Freezing spear that may slow the enemy",         "damage", 18, 3),
     Ability("Arcane Surge", 12, "Unleash raw arcane energy",                      "damage", 32, 5),
-    Ability("Mana Shield",  15, "Convert MP into a protective barrier",           "buff",   30, 7,  "self"),
+    Ability("Mana Shield",  15, "Half of incoming damage drains MP, not HP",      "buff",   30, 7,  "self"),
     Ability("Chain Lightning",20,"Lightning jumps between targets for bonus dmg", "damage", 40, 10),
     Ability("Meteor",       30, "Call down a meteor for devastating damage",      "damage", 65, 14),
 ]

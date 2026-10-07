@@ -1,14 +1,6 @@
 import random
 
 RARITIES = ["Common", "Uncommon", "Rare", "Epic", "Legendary"]
-RARITY_COLORS = {
-    "Common":    "",
-    "Uncommon":  "\033[32m",
-    "Rare":      "\033[34m",
-    "Epic":      "\033[35m",
-    "Legendary": "\033[33m",
-}
-RESET = "\033[0m"
 
 RARITY_WEIGHTS = [55, 25, 12, 6, 2]
 
@@ -43,10 +35,6 @@ class Item:
         self.effect_value = effect_value
         self.effect_duration = effect_duration  # turns for temp buffs
 
-    def colored_name(self):
-        color = RARITY_COLORS.get(self.rarity, "")
-        return f"{color}[{self.rarity}] {self.name}{RESET}"
-
     def stat_string(self):
         if not self.stats:
             return ""
@@ -54,7 +42,7 @@ class Item:
         return " | ".join(parts)
 
     def __str__(self):
-        base = self.colored_name()
+        base = f"[{self.rarity}] {self.name}"
         stats = self.stat_string()
         return f"{base}" + (f" ({stats})" if stats else "") + f" [Worth: {self.value}g]"
 

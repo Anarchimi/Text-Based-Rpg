@@ -107,13 +107,6 @@ class Enemy:
             return self.dot_dmg
         return 0
 
-    def hp_bar(self, width=20):
-        pct  = self.hp / self.max_hp
-        fill = int(width * pct)
-        col  = "\033[32m" if pct > 0.5 else ("\033[33m" if pct > 0.25 else "\033[31m")
-        rst  = "\033[0m"
-        return f"{col}[{'█'*fill}{'░'*(width-fill)}]{rst} {self.hp}/{self.max_hp}"
-
     def loot_drop(self, player_level, player_lck=0):
         items = generate_loot(level=player_level, luck=player_lck,
                               count=random.randint(0, 2 + (1 if self.is_boss else 0)))

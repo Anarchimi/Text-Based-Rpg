@@ -223,8 +223,9 @@ class Player:
         base = self.str + self.dex // 3
         weap = self.equipment["weapon"].stats.get("atk", 0) if self.equipment["weapon"] else 0
         berserk = 2 if "Berserk" in self.buffs else 1
+        battle_cry = 1.2 if "Battle Cry" in self.buffs else 1
         champion_bonus = int((base + weap) * 0.10) if self.profession == "Champion" else 0
-        return int((base + weap + champion_bonus) * berserk)
+        return int((base + weap + champion_bonus) * berserk * battle_cry)
 
     @property
     def defense(self):
@@ -493,40 +494,3 @@ class Player:
         old_level = skill["level"]
         skill["level"] = level
         return level, level > old_level
-
-    # ── Display ────────────────────────────────────────────────────────────────
-    def status_bar(self):
-        hp_pct = self.hp / self.max_hp
-        mp_pct = self.mp / self.max_mp
-        hp_col = "\033[32m" if hp_pct > 0.5 else ("\033[33m" if hp_pct > 0.25 else "\033[31m")
-        rst    = "\033[0m"
-        return (f"{hp_col}HP: {self.hp}/{self.max_hp}{rst}  "
-                f"\033[34mMP: {self.mp}/{self.max_mp}{rst}  "
-                f"Gold: {self.gold}g  LVL: {self.level}  XP: {self.xp}/{self.xp_next}")
-
-    def full_stats(self):
-        lines = [
-            f"  Name:  {self.name} the {self.player_class}  (Level {self.level})",
-            f"  HP:    {self.hp}/{self.max_hp}    MP: {self.mp}/{self.max_mp}",
-            f"  STR:   {self.str:.0f}     DEX: {self.dex:.0f}     INT: {self.int:.0f}",
-            f"  VIT:   {self.vit:.0f}     LCK: {self.lck:.0f}",
-            f"  ATK:   {self.attack:.0f}     DEF: {self.defense:.0f}     SPD: {self.speed:.0f}",
-            f"  Gold:  {self.gold}g    XP: {self.xp}/{self.xp_next}",
-            f"  Skill Points: {self.skill_points}",
-            f"  Kills: {self.kills}    Quests: {self.quests_completed}",
-        ]
-        if self.profession:
-            lines.append(f"  Profession: {self.profession}")
-        weap = self.equipment["weapon"]
-        arm  = self.equipment["armor"]
-        lines.append(f"  Weapon: {weap.name if weap else 'None'}")
-        lines.append(f"  Armor:  {arm.name  if arm  else 'None'}")
-        if self.skills_learned:
-            lines.append(f"  Skills: {', '.join(s['name'] for s in self.skills_learned)}")
-        if self.buffs:
-            lines.append(f"  Buffs:  {', '.join(f'{k}({v}t)' for k,v in self.buffs.items())}")
-        if self.temp_buffs:
-            lines.append("  Temp:   " + ', '.join(b['stat']+'+'+str(b['amount'])+'('+str(b['turns'])+'t)' for b in self.temp_buffs))
-        if self.dot > 0:
-            lines.append(f"  POISONED: {self.dot_dmg} dmg for {self.dot} more turns")
-        return "\n".join(lines)
