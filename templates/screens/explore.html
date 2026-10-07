@@ -1,0 +1,40 @@
+  {% set p = state.player %}
+  {% set hp_pct = (p.hp / p.max_hp * 100)|int %}
+  {% set mp_pct = (p.mp / p.max_mp * 100)|int %}
+  {% set fx = depth_effects(state.depth) %}
+  <div class="status-bar">
+    <div class="status-name">{{ p.name }} &nbsp;·&nbsp; Lv {{ p.level }} &nbsp;·&nbsp; {{ p.gold }}g</div>
+    <div class="bar-row">
+      <div class="bar-lbl">HP</div>
+      <div class="bar-track"><div class="bar-fill {% if hp_pct < 25 %}bar-hp-cr{% elif hp_pct < 50 %}bar-hp-lo{% else %}bar-hp{% endif %}" style="width:{{ hp_pct }}%"></div></div>
+      <div class="bar-nums" style="color:{% if hp_pct < 25 %}var(--red){% elif hp_pct < 50 %}var(--yellow){% else %}var(--green){% endif %}">{{ p.hp }}/{{ p.max_hp }}</div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-lbl">MP</div>
+      <div class="bar-track"><div class="bar-fill bar-mp" style="width:{{ mp_pct }}%"></div></div>
+      <div class="bar-nums" style="color:var(--blue)">{{ p.mp }}/{{ p.max_mp }}</div>
+    </div>
+  </div>
+
+  <p class="page-title">{{ zones[state.zone].name }}</p>
+
+  <div class="seal-bar depth-bar">
+    Trail depth {{ state.depth }}/{{ max_depth }}
+    {%- if state.depth %} · enemies +{{ fx.enemy_levels }} Lv · gold +{{ fx.gold_pct }}% · loot luck +{{ fx.luck }}{% endif %}
+    <div class="depth-pips">{% for i in range(max_depth) %}<span class="{{ 'on' if i < state.depth else '' }}"></span>{% endfor %}</div>
+  </div>
+
+  {% if state.messages %}
+  <div class="msgs">{% for m in state.messages %}<div class="msg msg-{{ m.kind }}">{{ m.text }}</div>{% endfor %}</div>
+  {% endif %}
+
+  <div class="card-head">Choose your path</div>
+  <form method="post" action="/action">
+    {% for i, opt in enumerate(state.explore_options or []) %}
+    <button class="path-btn path-{{ opt.kind }}" name="action" value="choose_{{ i }}">
+      {{ opt.title }}
+      <span class="ability-desc">{{ opt.detail }}</span>
+    </button>
+    {% endfor %}
+    <button class="btn-dim" name="action" value="back">↩ Return to hub <span class="ability-desc">Trail depth is kept until you rest</span></button>
+  </form>

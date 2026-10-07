@@ -255,6 +255,14 @@
     .legendary-fx { color: var(--yellow); }
     .diff-up     { color: var(--green); white-space: nowrap; }
     .diff-down   { color: var(--red); white-space: nowrap; }
+    .depth-bar   { text-align: left; }
+    .depth-pips  { display: flex; gap: 4px; margin-top: 6px; }
+    .depth-pips span { flex: 1; height: 6px; border-radius: 3px; background: var(--border, #2a2a40); }
+    .depth-pips span.on { background: var(--yellow); }
+    .path-btn    { text-align: left; }
+    .path-fight  { border-color: var(--red); }
+    .path-rest   { border-color: var(--green); }
+    .path-story  { border-color: var(--yellow); }
 
     /* ── Combat ── */
     .enemy-card {

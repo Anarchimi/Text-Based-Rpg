@@ -123,24 +123,20 @@ def test_bounty_needs_the_leader_not_any_member():
 def test_bounty_leaders_spawn_while_the_bounty_is_active(monkeypatch):
     import app as game_app
     from conftest import make_player
+    from enemies import ENEMY_TEMPLATES, Enemy
     monkeypatch.setattr(game_app, 'BOUNTY_LEADER_CHANCE', 1.0)
     log = QuestLog()
     q = Quest(1, 'bounty', 'b', 'd', 'o', 'Goblin', 1, 10, 10)
     log.add_quest(q)
     log.accept_quest(q)
-    monkeypatch.setattr(game_app, 'spawn_enemy', lambda **kw: __import__('enemies').Enemy(
-        __import__('enemies').ENEMY_TEMPLATES[0], 1))
-    monkeypatch.setattr(game_app, 'explore_step', lambda *a: [('encounter', 1, '⚠  A monster blocks your path!')])
+    monkeypatch.setattr(game_app, 'generate_explore_options',
+                        lambda *a, **k: [{'kind': 'fight', 'enemy': Enemy(ENEMY_TEMPLATES[0], 1)}])
     st = game_app.fresh_state()
     st.update(player=make_player('Warrior'), quest_log=log, screen='hub')
-    with game_app.app.test_request_context('/action', method='POST', data={'action': 'explore'}):
-        from flask import session
-        session['sid'] = '00000000-0000-4000-8000-000000000000'
-        game_app.save_state(st)
-        game_app.action()
-        st = game_app.get_state()
-    assert st['combat_enemy'].name == 'Goblin Leader'
-    assert st['combat_enemy'].template_name == 'Goblin'
+    game_app.ensure_explore_options(st)
+    enemy = st['explore_options'][0]['enemy']
+    assert enemy.name == 'Goblin Leader' and enemy.template_name == 'Goblin'
+    assert 'Bounty target' in st['explore_options'][0]['detail']
 
 
 # ── Flee ───────────────────────────────────────────────────────────────────────
@@ -163,7 +159,9 @@ def test_exploring_finds_the_boss_lair_then_it_can_be_challenged(monkeypatch):
     import app as game_app
     from conftest import make_player
     from world import LAIR_STEPS
-    monkeypatch.setattr(game_app, 'explore_step', lambda *a: [('nothing', 0, 'quiet')])
+    monkeypatch.setattr(game_app, 'generate_explore_options',
+                        lambda *a, **k: [{'kind': 'shrine'}, {'kind': 'shrine'}, {'kind': 'shrine'}])
+    monkeypatch.setattr(game_app, 'resolve_option', lambda *a: [('nothing', 0, 'quiet')])
     client = game_app.app.test_client()
     client.get('/')
     with client.session_transaction() as s:
@@ -174,11 +172,16 @@ def test_exploring_finds_the_boss_lair_then_it_can_be_challenged(monkeypatch):
     hero.profession = 'Knight'
     st.update(player=hero, quest_log=QuestLog(), screen='hub', zone=2)
     pickle.dump(st, open(os.path.join(game_app.SAVE_DIR, f'{sid}.pkl'), 'wb'))
+    client.post('/action', data={'action': 'explore'})
     for _ in range(LAIR_STEPS - 1):
-        page = client.post('/action', data={'action': 'explore'}, follow_redirects=True).get_data(as_text=True)
+        client.post('/action', data={'action': 'choose_0'})
+    page = client.post('/action', data={'action': 'back'}, follow_redirects=True).get_data(as_text=True)
     assert 'Challenge Undead Warlord' not in page
-    page = client.post('/action', data={'action': 'explore'}, follow_redirects=True).get_data(as_text=True)
-    assert "found the lair of Undead Warlord" in page and 'Challenge Undead Warlord' in page
+    client.post('/action', data={'action': 'explore'})
+    page = client.post('/action', data={'action': 'choose_0'}, follow_redirects=True).get_data(as_text=True)
+    assert "found the lair of Undead Warlord" in page
+    page = client.post('/action', data={'action': 'back'}, follow_redirects=True).get_data(as_text=True)
+    assert 'Challenge Undead Warlord' in page
     page = client.post('/action', data={'action': 'challenge_boss'}, follow_redirects=True).get_data(as_text=True)
     assert 'Undead Warlord' in page and 'Defend' in page  # in combat with the zone boss
 
