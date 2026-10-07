@@ -972,3 +972,97 @@ def test_revive_messages_name_the_actual_item(monkeypatch):
     text = ' '.join(l['text'] for l in st['combat_log'])
     assert 'Phoenix Draught saves you' in text and 'Feather' not in text
     assert draught not in p.inventory
+
+
+# ── Audit regressions ──────────────────────────────────────────────────────────
+
+def _web_client_with(state):
+    import app as game_app, os
+    client = game_app.app.test_client()
+    client.get('/')
+    with client.session_transaction() as s:
+        sid = s['sid']
+    path = os.path.join(game_app.SAVE_DIR, f'{sid}.pkl')
+    pickle.dump(state, open(path, 'wb'))
+    return client, path
+
+
+@pytest.mark.parametrize('make', [
+    lambda: fletch_item('Power', 'Yew', 'Longbow', 'Rare', 'Rogue'),
+    lambda: _tempered('Heavy Plating'),
+])
+def test_upgrades_never_shrink_a_stat_penalty(make):
+    """Upgrades scale bonuses; a −SPD penalty must stay a penalty (and not depend on temper order)."""
+    item = make()
+    penalty = item.stats['spd']
+    assert penalty < 0
+    for _ in range(5):
+        item.apply_upgrade()
+    assert item.stats['spd'] == penalty
+
+
+def _tempered(name):
+    item = forge_item('armor', 'Steel', 'Rare', 'Warrior')
+    item.apply_temper(name)
+    return item
+
+
+@pytest.mark.parametrize('act', ['temper_', 'temper_weapon', 'temper__'])
+def test_malformed_temper_post_fails_safely(act):
+    import app as game_app
+    from quests import QuestLog
+    st = game_app.fresh_state()
+    st.update(player=trader('Blacksmith', Smithing=15), quest_log=QuestLog(), screen='inventory')
+    client, _ = _web_client_with(st)
+    assert client.post('/action', data={'action': act}).status_code == 302
+
+
+@pytest.mark.parametrize('effect,final', [('revive', False), ('smoke_escape', True)])
+def test_a_refused_combat_item_costs_no_turn(effect, final):
+    """Like a failed ability: nothing happened, so the enemy gets no free hit."""
+    from enemies import spawn_final_boss
+    p = trader('Fisher')
+    item = Item('Phoenix Draught' if effect == 'revive' else 'Smoke Arrow', 'consumable', 'Rare', 10, effect=effect)
+    p.add_item(item)
+    e = spawn_final_boss(19) if final else spawn_enemy(1, 1)
+    st = {'player': p, 'combat_enemy': e, 'combat_log': [], 'combat_turn': 1}
+    hp = p.hp
+    idx = p.combat_consumables().index(item)
+    assert combat.do_combat_turn(st, 'item', item_idx=idx) == 'continue'
+    assert p.hp == hp and st['combat_turn'] == 1 and item in p.inventory
+
+
+def test_new_game_plus_drops_the_old_trail():
+    import app as game_app
+    from quests import QuestLog
+    st = game_app.fresh_state()
+    st.update(player=trader('Fisher', level=19), quest_log=QuestLog(), zone=5, screen='ending', depth=7)
+    game_app.ensure_explore_options(st)
+    assert st['explore_options']
+    game_app.start_new_game_plus(st)
+    assert st['zone'] == 1 and st['depth'] == 0 and st['explore_options'] is None
+
+
+@pytest.mark.parametrize('trade', ['Blacksmith', 'Fisher'])   # discounted and full upgrade prices
+@pytest.mark.parametrize('rarity', ['Rare', 'Epic', 'Legendary'])
+def test_upgrading_then_selling_never_makes_gold(trade, rarity):
+    """Invariant: upgrade an item, sell it, and you end up with less gold than if you'd sold it as is."""
+    from items import UPGRADE_BARS, UPGRADE_MAX, generate_armor, generate_weapon
+    from player import Player
+    for seed in range(15):
+        random.seed(seed)
+        for make in (lambda: generate_weapon('Warrior', 19, rarity), lambda: generate_armor(19, rarity, 'Warrior'),
+                     lambda: forge_item('weapon', 'Steel', rarity, 'Warrior')):
+            p = Player('U', 'Warrior')
+            p.trade_profession = trade
+            item = make()
+            p.add_item(item)
+            p.equip(item)
+            p.gold = 10 ** 6
+            p.resources = {bar: 10 for bar in UPGRADE_BARS.values()}
+            sell_as_is = item.value // 2                         # app.py sells at value // 2
+            for _ in range(UPGRADE_MAX):
+                assert p.upgrade_equipped(item.item_type)[0]
+                spent = 10 ** 6 - p.gold
+                assert item.value // 2 - sell_as_is < spent, (rarity, trade, item.name, item.upgrade)
+            assert item.value > 2 * sell_as_is, 'upgraded gear is still worth more than the plain item'

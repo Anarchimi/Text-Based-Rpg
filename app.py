@@ -391,6 +391,8 @@ def start_new_game_plus(state):
     state['triggered_events'] = set()
     state['lair_progress'] = {}
     state['zone'] = 1
+    state['explore_options'] = None   # offered paths belonged to the old zone and cycle
+    state['depth'] = 0
     player.hp, player.mp = player.max_hp, player.max_mp
     state['screen'] = 'hub'
     add_msg(state, 'lore', f"NEW GAME+ {state['ng_plus']}: The seals reform. The realm remembers your name — "
@@ -804,7 +806,7 @@ def action():
             if 0 <= idx < len(equippable):
                 ok, text = player.equip(equippable[idx])
                 add_msg(state, 'success' if ok else 'danger', text)
-        elif act.startswith('temper_'):
+        elif act.startswith('temper_') and act.count('_') >= 2:
             _, slot, name = act.split('_', 2)
             ok, text = trades.temper(player, player.equipment.get(slot), name)
             add_msg(state, 'success' if ok else 'danger', text)
