@@ -18,6 +18,7 @@ from items import (generate_shop_stock, generate_weapon, generate_armor, generat
                    STAT_LABELS, LEGENDARY_EFFECTS)
 from world import (travel_to_zone, ZONES, ZONE_LEVEL_REQ, LAIR_STEPS, MAX_DEPTH, DEPTH_GOLD, DEPTH_LUCK,
                    get_zone, generate_explore_options, describe_option, resolve_option, depth_effects)
+from trades import TRADE_MILESTONES, next_milestone
 from crafting import (TRADE_PROFESSIONS, CRAFTING_RECIPES, ZONE_RESOURCES,
                       GATHERING_SKILLS, CRAFTING_SKILLS, SKILL_ICONS,
                       GATHER_BUTTON_LABELS, gather_resource, craft_item, calc_skill_level)
@@ -43,6 +44,8 @@ app.jinja_env.globals['len'] = len
 app.jinja_env.globals['upgrade_cost'] = upgrade_cost
 app.jinja_env.globals['depth_effects'] = depth_effects
 app.jinja_env.globals['max_depth'] = MAX_DEPTH
+app.jinja_env.globals['next_milestone'] = next_milestone
+app.jinja_env.globals['trade_milestones'] = TRADE_MILESTONES
 app.jinja_env.globals['profession_abilities'] = PROFESSION_ABILITIES
 app.jinja_env.globals['ability_cost'] = ability_cost
 app.jinja_env.globals['defend_reduction'] = defend_reduction
@@ -789,6 +792,9 @@ def action():
         if act == 'restart':
             state = fresh_state()
 
+    if state.get('player'):
+        for msg in state['player'].pop_unlocks():
+            add_msg(state, 'levelup', msg)
     save_state(state)
     return redirect(url_for('index'))
 

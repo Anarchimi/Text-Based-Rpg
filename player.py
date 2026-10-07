@@ -191,6 +191,8 @@ class Player:
         self.elixirs_used       = {}     # {"buff_str": n, "buff_int": n}, capped at ELIXIR_CAP
         self.momentum           = 0      # Champion "Momentum" perk, per fight
         self.deathless_used     = False  # Necromancer "Deathless" perk, once per fight
+        self.unlock_log         = []     # trade milestone messages not yet shown
+        self.trade_specialization = None # reserved for trade specializations (not chosen yet)
 
         # Trade / gathering professions
         self.trade_profession = None
@@ -561,6 +563,8 @@ class Player:
         d.setdefault("elixirs_used", {})
         d.setdefault("momentum", 0)
         d.setdefault("deathless_used", False)
+        d.setdefault("unlock_log", [])
+        d.setdefault("trade_specialization", None)
         if d.get("trade_profession") == "Ranger":  # renamed to avoid clashing with the Rogue's Ranger
             d["trade_profession"] = "Fletcher"
         self.__dict__.update(d)
@@ -627,4 +631,13 @@ class Player:
                 break
         old_level = skill["level"]
         skill["level"] = level
+        if level > old_level:
+            from trades import milestones_between
+            for lv, title, text in milestones_between(skill_name, old_level, level):
+                self.unlock_log.append(f"★ {skill_name} {lv} — {title}: {text}")
         return level, level > old_level
+
+    def pop_unlocks(self):
+        """Milestone announcements earned since the last call (shown by app.py)."""
+        out, self.unlock_log = self.unlock_log, []
+        return out

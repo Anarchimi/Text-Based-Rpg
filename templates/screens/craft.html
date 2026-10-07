@@ -1,3 +1,4 @@
+{% from 'partials/milestones.html' import milestones %}
   {% set p = state.player %}
   {% set cur_skill = state.craft_skill %}
   <form method="post" action="/action">
@@ -34,6 +35,7 @@
   {% set recipes = crafting_recipes.get(cur_skill, []) %}
   {% set cur_sk_data = p.crafting_skills.get(cur_skill, {"level": 1}) %}
   {% set cur_sk_lv = cur_sk_data.level %}
+  {{ milestones(p, cur_skill) }}
 
   {% if recipes %}
   <form method="post" action="/action">

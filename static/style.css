@@ -260,6 +260,10 @@
     .depth-pips span { flex: 1; height: 6px; border-radius: 3px; background: var(--border, #2a2a40); }
     .depth-pips span.on { background: var(--yellow); }
     .path-btn    { text-align: left; }
+    .milestones  { font-size: 11px; margin: 2px 0 8px; }
+    .ms-done     { color: var(--green); }
+    .ms-next     { color: var(--dim); }
+    .path-trade  { border-color: var(--cyan); }
     .path-fight  { border-color: var(--red); }
     .path-rest   { border-color: var(--green); }
     .path-story  { border-color: var(--yellow); }

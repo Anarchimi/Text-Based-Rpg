@@ -1,3 +1,4 @@
+{% from 'partials/milestones.html' import milestones %}
   {% set p = state.player %}
   {% set cur_zone_res = zone_resources.get(state.zone, {}) %}
   <form method="post" action="/action">
@@ -36,6 +37,7 @@
         <div class="bar-track"><div class="bar-fill bar-sk" style="width:{{ xp_pct }}%"></div></div>
         <div class="bar-nums" style="color:var(--cyan);font-size:10px;">{{ xp_in_lv }}/{{ xp_need }}</div>
       </div>
+      {{ milestones(p, skill_name) }}
       {% if zone_skill_res %}
       <div class="gather-resources-list">
         {% for res_name, wt, req_lv in zone_skill_res %}

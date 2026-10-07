@@ -101,11 +101,18 @@ def generate_explore_options(player, zone_id, triggered_events, depth, ng=0):
         pool["story"] = 4
     if not _forage_skills(player, zone_id):
         pool.pop("forage")
+    from trades import available_trade_events
+    trade_events = available_trade_events(player, zone_id)
+    if trade_events:
+        pool["trade"] = 3
     while len(options) < EXPLORE_CHOICES and pool:
         kind = random.choices(list(pool), weights=list(pool.values()))[0]
         del pool[kind]
         opt = {"kind": kind}
-        if kind == "treasure":
+        if kind == "trade":
+            opt["event"] = random.choice(trade_events)["id"]
+            opt["trade"] = player.trade_profession
+        elif kind == "treasure":
             opt["spot"] = random.choice(TREASURE_SPOTS)
             opt["trap_pct"] = depth_effects(depth)["trap_pct"]
             if player.trade_profession == "Fletcher":  # Woodsman's Eye
@@ -152,6 +159,9 @@ def describe_option(opt, zone_id, player_level=None):
         return "🔥 Make camp", f"+{int(REST_HEAL * 100)}% HP & MP · resets trail depth"
     if kind == "story":
         return "✦ Something stirs nearby", "An important moment in the story"
+    if kind == "trade":
+        from trades import describe_trade_event
+        return describe_trade_event(opt["event"], opt["trade"])
     return kind, ""
 
 
@@ -219,6 +229,9 @@ def resolve_option(opt, player, zone_id, triggered_events, depth):
     if kind == "rest":
         return [("heal_pct", int(REST_HEAL * 100), "You make camp and rest."),
                 ("heal_mp_pct", int(REST_HEAL * 100), ""), ("reset_depth", 0, "")]
+    if kind == "trade":
+        from trades import resolve_trade_event
+        return resolve_trade_event(opt["event"], player, zone_id, depth)
     if kind == "story":
         for eid, msg, etype, val in NAMED_EVENTS.get(zone_id, []):
             if eid not in triggered_events:
