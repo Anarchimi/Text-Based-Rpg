@@ -137,3 +137,34 @@ def test_endgame_flow_through_the_web_ui(monkeypatch):
 
     page = client.post('/action', data={'action': 'new_game_plus'}, follow_redirects=True).get_data(as_text=True)
     assert 'NG+1' in page and 'Confront the Chaos Dragon Lord' not in page
+
+
+def test_body_carries_the_music_cue_for_each_screen():
+    """static/game.js picks the theme from <body data-music>; the cue must follow screen and enemy."""
+    import pickle, os, re
+    import app as game_app
+    from enemies import spawn_enemy, spawn_final_boss
+    from player import Player
+    from quests import QuestLog
+
+    def cue(screen, **extra):
+        st = game_app.fresh_state()
+        p = Player('M', 'Warrior'); p.profession = 'Knight'
+        st.update(player=p, quest_log=QuestLog(), screen=screen, **extra)
+        client = game_app.app.test_client()
+        client.get('/')
+        with client.session_transaction() as s:
+            sid = s['sid']
+        pickle.dump(st, open(os.path.join(game_app.SAVE_DIR, f'{sid}.pkl'), 'wb'))
+        html = client.get('/').get_data(as_text=True)
+        return re.search(r'data-music="([a-z]+)"', html).group(1)
+
+    assert cue('title') == 'title'
+    assert cue('hub') == 'town' and cue('inventory') == 'town'
+    assert cue('explore') == 'explore'
+    assert cue('combat', combat_enemy=spawn_enemy(1, 1), combat_turn=1) == 'combat'
+    assert cue('combat', combat_enemy=spawn_enemy(1, 5, force_boss=True), combat_turn=1) == 'boss'
+    assert cue('combat', combat_enemy=spawn_final_boss(19), combat_turn=1) == 'final'
+    assert cue('combat_result', return_to='explore') == 'explore'
+    assert cue('combat_result') == 'town'
+    assert cue('ending') == 'ending' and cue('game_over') == 'none'

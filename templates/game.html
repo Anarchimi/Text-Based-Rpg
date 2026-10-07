@@ -9,7 +9,19 @@
   <title>Chronicles of the Shattered Realm</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body class="zone-{{ state.zone if state.zone else 1 }}">
+{# Music cue for static/game.js: which theme fits this screen. #}
+{% set scr = state.screen %}
+{% set foe = state.combat_enemy %}
+{% if scr in ('title', 'char_name', 'char_class', 'trade_prof_choice') %}{% set music = 'title' %}
+{% elif scr == 'combat' and foe and foe.is_final %}{% set music = 'final' %}
+{% elif scr == 'combat' and foe and foe.is_boss %}{% set music = 'boss' %}
+{% elif scr == 'combat' %}{% set music = 'combat' %}
+{% elif scr in ('explore', 'node') or (scr == 'combat_result' and state.return_to == 'explore') %}{% set music = 'explore' %}
+{% elif scr == 'ending' %}{% set music = 'ending' %}
+{% elif scr == 'game_over' %}{% set music = 'none' %}
+{% else %}{% set music = 'town' %}{% endif %}
+<body class="zone-{{ state.zone if state.zone else 1 }}" data-screen="{{ scr }}" data-music="{{ music }}"
+      data-zone="{{ state.zone if state.zone else 1 }}">
 <div class="screen">
 
 {# Each screen lives in templates/screens/<state.screen>.html #}
