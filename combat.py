@@ -13,6 +13,11 @@ PHASE2_ABILITY_CHANCE = 0.55
 DEFEND_MP_REGEN = 0.08        # Defend restores this fraction of max MP
 STUN_IMMUNITY_TURNS = 2       # after being stunned, the player can't be stunned again for a bit
 SHADOW_STEP_CRIT_BONUS = 0.25
+# Legendary gear effects (items.LEGENDARY_EFFECTS)
+VAMPIRIC_HEAL = 0.10
+THORNS_REFLECT = 0.20
+EXECUTIONER_THRESHOLD = 0.35
+BULWARK_HEAL = 0.10
 
 
 def flee_chance(player, enemy):
@@ -23,7 +28,7 @@ def flee_chance(player, enemy):
     return max(0.10, min(0.90, chance))
 
 
-def hit_player(player, dmg, clog, defending=False):
+def hit_player(player, dmg, clog, defending=False, attacker=None):
     """Apply incoming enemy damage after Evasion / Defend / Mana Shield. Returns HP lost."""
     if 'Evasion' in player.buffs:
         del player.buffs['Evasion']
@@ -38,13 +43,38 @@ def hit_player(player, dmg, clog, defending=False):
             dmg -= absorbed
             clog('buff', f'Mana Shield absorbs {absorbed} damage!')
     player.hp = max(0, player.hp - dmg)
+    if attacker is not None and dmg and player.has_effect('Thorns'):
+        reflected = max(1, int(dmg * THORNS_REFLECT))
+        attacker.hp = max(0, attacker.hp - reflected)
+        clog('player', f'Thorns: {attacker.name} takes {reflected} damage!')
     return dmg
 
 
 def end_combat(player):
-    """Debuffs only exist inside a fight."""
+    """Debuffs and once-per-fight effects only exist inside a fight."""
     player.debuffs.clear()
     player.buffs.pop('Steadfast', None)
+    player.second_wind_used = False
+
+
+def ability_cost(player, ability):
+    if player.has_effect('Arcane Flow'):
+        return max(1, -(-ability.mp_cost * 3 // 4))  # 25% off, rounded up
+    return ability.mp_cost
+
+
+def _legendary_damage(player, enemy, dmg):
+    if player.has_effect('Executioner') and enemy.hp < enemy.max_hp * EXECUTIONER_THRESHOLD:
+        dmg = int(dmg * 1.25)
+    return dmg
+
+
+def _after_hit(player, actual, clog):
+    if actual and player.has_effect('Vampiric'):
+        healed = min(max(1, int(actual * VAMPIRIC_HEAL)), player.max_hp - player.hp)
+        if healed:
+            player.hp += healed
+            clog('heal', f'Vampiric: +{healed} HP')
 
 
 # ── Player side ────────────────────────────────────────────────────────────────
@@ -74,8 +104,9 @@ def _apply_enemy_status(enemy, status, power, clog):
 
 def _player_attack(player, enemy, clog):
     bonus = random.randint(-2, 4)
-    crit = random.random() < (0.05 + player.dex / 200)
+    crit = random.random() < (0.05 + player.dex / 200 + player.crit_bonus)
     dmg = int((player.attack + bonus) * (1.8 if crit else 1.0))
+    dmg = _legendary_damage(player, enemy, dmg)
 
     if player.profession == 'Ranger' and not player.first_strike_used:
         dmg = int(dmg * 1.2)
@@ -91,18 +122,20 @@ def _player_attack(player, enemy, clog):
     if crit:
         clog('crit', '★ CRITICAL HIT!')
     clog('player', f'{player.name} attacks for {actual} damage.')
+    _after_hit(player, actual, clog)
 
 
 def _player_ability(player, enemy, picked, clog):
-    if player.mp < picked.mp_cost:
+    cost = ability_cost(player, picked)
+    if player.mp < cost:
         clog('danger', 'Not enough MP!')
         return False
-    player.mp -= picked.mp_cost
+    player.mp -= cost
     power = player.ability_power
     effect = picked.calculate_effect(power)
 
     if picked.ability_type == 'damage':
-        crit_chance = 0.12 + (SHADOW_STEP_CRIT_BONUS if picked.name == 'Shadow Step' else 0)
+        crit_chance = 0.12 + player.crit_bonus + (SHADOW_STEP_CRIT_BONUS if picked.name == 'Shadow Step' else 0)
         crit = random.random() < crit_chance
         dmg = int(effect * (1.5 if crit else 1.0))
 
@@ -124,12 +157,14 @@ def _player_ability(player, enemy, picked, clog):
             dmg = int(dmg * mult)
             clog('crit', f'DEATH MARK! {mult}× DAMAGE!')
 
+        dmg = _legendary_damage(player, enemy, dmg)
         actual = _strike(enemy, dmg, clog)
         if actual is None:
             return True
         if crit:
             clog('crit', '★ CRITICAL!')
         clog('player', f'{picked.name}: {actual} damage!')
+        _after_hit(player, actual, clog)
 
         if picked.status and random.random() < picked.status_chance:
             _apply_enemy_status(enemy, picked.status, power, clog)
@@ -161,7 +196,7 @@ def _player_ability(player, enemy, picked, clog):
 
 def _enemy_hit(player, enemy, mult, clog, defending):
     raw = enemy.effective_atk * mult * random.uniform(0.9, 1.1)
-    return hit_player(player, mitigate(raw, player.defense), clog, defending)
+    return hit_player(player, mitigate(raw, player.defense), clog, defending, attacker=enemy)
 
 
 def _enemy_ability(player, enemy, name, spec, clog, defending):
@@ -291,6 +326,10 @@ def do_combat_turn(state, action, ability_idx=None, item_idx=None):
         regen = min(int(player.max_mp * DEFEND_MP_REGEN), player.max_mp - player.mp)
         player.mp += regen
         clog('buff', f'You raise your guard. (half damage, no stuns this turn, +{regen} MP)')
+        if player.has_effect('Bulwark'):
+            healed = min(int(player.max_hp * BULWARK_HEAL), player.max_hp - player.hp)
+            player.hp += healed
+            clog('heal', f'Bulwark: +{healed} HP')
     elif action == 'ability' and ability_idx is not None:
         abilities = player.get_abilities()
         if 0 <= ability_idx < len(abilities):
@@ -321,6 +360,8 @@ def do_combat_turn(state, action, ability_idx=None, item_idx=None):
             return 'victory'
 
     _enemy_turn(player, enemy, clog, defending)
+    if not enemy.is_alive():  # Thorns
+        return 'victory'
     enemy.tick_statuses()
 
     expired = player.tick_buffs()
@@ -331,6 +372,10 @@ def do_combat_turn(state, action, ability_idx=None, item_idx=None):
         if not b.endswith('_buff') and b != 'Steadfast':
             clog('warning', f'{b} wore off.')
 
+    if player.hp <= 0 and player.has_effect('Second Wind') and not player.second_wind_used:
+        player.hp = 1
+        player.second_wind_used = True
+        clog('heal', 'Second Wind! You refuse to fall — 1 HP.')
     if player.hp <= 0:
         if player.has_revive():
             clog('warning', 'Defeated... but a Phoenix Feather saves you!')

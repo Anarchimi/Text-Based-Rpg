@@ -1,3 +1,4 @@
+{% from 'partials/item.html' import item_stats, compare %}
   {% set p = state.player %}
   <form method="post" action="/action">
     <button class="back-btn" name="action" value="back">← Back</button>
@@ -15,10 +16,13 @@
     <div class="item-row">
       <div class="item-info">
         <div class="item-name r-{{ item.rarity }}">[{{ item.rarity }}] {{ item.name }}</div>
-        <div class="item-meta">
-          {{ item.item_type }}
-          {% if item.stats %}· {% for k, v in item.stats.items() %}+{{ v }} {{ k.upper() }} {% endfor %}{% endif %}
-        </div>
+        {% if item.item_type in ('weapon', 'armor', 'accessory') %}
+        <div class="item-meta">{{ item.item_type }}</div>
+        {{ item_stats(item) }}
+        {{ compare(item, p.equipment.get(item.item_type)) }}
+        {% else %}
+        <div class="item-meta">{{ item.effect | replace('_', ' ') }}</div>
+        {% endif %}
       </div>
       <div class="item-actions">
         <span style="font-size:13px;color:var(--yellow);line-height:2;">{{ item.value }}g</span>

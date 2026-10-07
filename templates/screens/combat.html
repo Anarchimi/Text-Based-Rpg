@@ -65,8 +65,8 @@
       <div class="sub-menu">
         {% for i, ab in enumerate(abilities) %}
         <button name="action" value="ability_{{ i }}"
-                {% if p.mp < ab.mp_cost %}class="btn-dim"{% endif %}>
-          {{ ab.name }} <span class="ability-cost">[MP: {{ ab.mp_cost }}]</span>
+                {% if p.mp < ability_cost(p, ab) %}class="btn-dim"{% endif %}>
+          {{ ab.name }} <span class="ability-cost">[MP: {{ ability_cost(p, ab) }}]</span>
           <span class="ability-desc">{{ ab.description }}</span>
         </button>
         {% endfor %}

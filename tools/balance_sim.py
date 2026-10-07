@@ -17,7 +17,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from combat import do_combat_turn, end_combat                      # noqa: E402
 from enemies import BOSS_TEMPLATES, mitigate, spawn_enemy, spawn_final_boss  # noqa: E402
-from items import Item, generate_armor, generate_weapon             # noqa: E402
+from items import Item, generate_accessory, generate_armor, generate_weapon  # noqa: E402
+from combat import ability_cost  # noqa: E402
 from player import XP_TABLE, Player                                 # noqa: E402
 from world import ZONE_LEVEL_REQ                                    # noqa: E402
 
@@ -43,7 +44,8 @@ def build_player(cls, level, rarity="Rare", profession=None, potions=3, antidote
         for sk in sorted(p.available_prof_skills(), key=lambda s: s["cost"]):
             if p.learn_prof_skill(sk)[0]:
                 progressed = True
-    for it in (generate_weapon(cls, level, rarity), generate_armor(level, rarity)):
+    for it in (generate_weapon(cls, level, rarity), generate_armor(level, rarity, cls),
+               generate_accessory(level, rarity, cls)):
         p.add_item(it)
         p.equip(it)
     for _ in range(potions):
@@ -69,7 +71,7 @@ def choose_action(p, e, turn):
 
     def ability(name):
         i = names.index(name)
-        return ("ability", i, None) if p.mp >= abilities[i].mp_cost else None
+        return ("ability", i, None) if p.mp >= ability_cost(p, abilities[i]) else None
 
     if e.charging:
         for name in ("Shield Bash", "Smoke Bomb", "Evasion"):
@@ -99,7 +101,7 @@ def choose_action(p, e, turn):
 def expected_damage(p, e, a):
     """Rough expected damage of using ability `a` (None = basic attack)."""
     if a is None:
-        crit = min(1.0, 0.05 + p.dex / 200)
+        crit = min(1.0, 0.05 + p.dex / 200 + p.crit_bonus)
         return p.attack * (1 + 0.8 * crit)
     dmg = p.ability_power * a.mult * (1 + 0.5 * (0.37 if a.name == "Shadow Step" else 0.12))
     if a.name == "Death Mark":
@@ -112,7 +114,7 @@ def expected_damage(p, e, a):
 def best_damage(p, e, abilities):
     best, best_ev = ("attack", None, None), expected_damage(p, e, None)
     for i, a in enumerate(abilities):
-        if a.ability_type == "damage" and p.mp >= a.mp_cost:
+        if a.ability_type == "damage" and p.mp >= ability_cost(p, a):
             ev = expected_damage(p, e, a)
             if ev > best_ev:
                 best, best_ev = ("ability", i, None), ev

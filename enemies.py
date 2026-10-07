@@ -11,10 +11,10 @@ MOB_HP_MULT     = 2.6   # regular enemies' HP multiplier
 MOB_HP_GROWTH   = 1.1   # × template hp_s per level
 MOB_ATK_GROWTH  = 0.9   # × template atk_s per level
 MOB_DEF_GROWTH  = 1.0   # × template def_s per level
-BOSS_HP_GROWTH  = 0.10  # boss stat = base × (1 + growth × (level - 1))
-BOSS_ATK_GROWTH = 0.06
+BOSS_HP_GROWTH  = 0.13  # boss stat = base × (1 + growth × (level - 1))
+BOSS_ATK_GROWTH = 0.08
 BOSS_DEF_GROWTH = 0.06
-NG_PLUS_POWER   = 0.25  # each New Game+ cycle: enemy HP/ATK/DEF × (1 + this × cycle)
+NG_PLUS_POWER   = 0.45  # each New Game+ cycle: enemy HP/ATK/DEF × (1 + this × cycle)
 
 
 def mitigate(dmg, defense):
@@ -263,8 +263,8 @@ class Enemy:
             return self.dot_dmg
         return 0
 
-    def loot_drop(self, player_level, player_lck=0):
-        items = generate_loot(level=player_level, luck=player_lck,
+    def loot_drop(self, player_level, player_lck=0, player_class=None):
+        items = generate_loot(level=player_level, luck=player_lck, player_class=player_class,
                               count=random.randint(0, 2 + (1 if self.is_boss else 0)))
         gold  = self.gold + random.randint(-self.gold // 4, self.gold // 4)
         return items, max(1, gold)

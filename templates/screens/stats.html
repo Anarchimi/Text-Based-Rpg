@@ -1,3 +1,4 @@
+{% from 'partials/item.html' import item_stats %}
   {% set p = state.player %}
   <form method="post" action="/action">
     <button class="back-btn" name="action" value="back">← Back</button>
@@ -21,14 +22,14 @@
   </div>
   {% if p.profession %}<div style="font-size:13px;color:var(--cyan);margin-bottom:8px;">Profession: {{ p.profession }}</div>{% endif %}
   {% if p.trade_profession %}<div style="font-size:13px;color:var(--yellow);margin-bottom:8px;">Trade: {{ p.trade_profession }}</div>{% endif %}
-  {% set weap = p.equipment.get('weapon') %}
-  {% set arm  = p.equipment.get('armor') %}
   <div class="card">
-    <div style="font-size:12px;color:var(--dim);margin-bottom:4px;">Weapon</div>
-    <div class="r-{{ weap.rarity if weap else 'Common' }}">{{ weap.name if weap else '—' }}</div>
-    <hr>
-    <div style="font-size:12px;color:var(--dim);margin-bottom:4px;margin-top:8px;">Armor</div>
-    <div class="r-{{ arm.rarity if arm else 'Common' }}">{{ arm.name if arm else '—' }}</div>
+    {% for slot in ['weapon', 'armor', 'accessory'] %}
+    {% set it = p.equipment.get(slot) %}
+    {% if not loop.first %}<hr>{% endif %}
+    <div style="font-size:12px;color:var(--dim);margin-bottom:4px;{% if not loop.first %}margin-top:8px;{% endif %}">{{ slot | capitalize }}</div>
+    <div class="r-{{ it.rarity if it else 'Common' }}">{{ it.name if it else '—' }}</div>
+    {% if it %}{{ item_stats(it) }}{% endif %}
+    {% endfor %}
   </div>
   {% if p.gathering_skills %}
   <div class="card-head" style="margin-top:8px;">Gathering Skills</div>

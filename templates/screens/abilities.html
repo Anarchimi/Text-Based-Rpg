@@ -10,7 +10,7 @@
       <div style="font-size:15px;font-weight:bold;color:var(--purple);margin-bottom:4px;">{{ ab.name }}</div>
       <div style="font-size:12px;color:var(--dim);margin-bottom:6px;">{{ ab.description }}</div>
       <div style="font-size:12px;display:flex;gap:12px;flex-wrap:wrap;">
-        <span style="color:var(--blue);">MP: {{ ab.mp_cost }}</span>
+        <span style="color:var(--blue);">MP: {{ ability_cost(p, ab) }}</span>
         <span style="color:var(--dim);">Type: {{ ab.ability_type }}</span>
         <span style="color:var(--dim);">Power: {{ ab.value }}</span>
         <span style="color:var(--dim);">Req Lv: {{ ab.level_req }}</span>

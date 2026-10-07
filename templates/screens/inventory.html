@@ -1,3 +1,4 @@
+{% from 'partials/item.html' import item_stats, compare %}
   {% set p = state.player %}
   <form method="post" action="/action">
     <button class="back-btn" name="action" value="back">← Back</button>
@@ -11,13 +12,12 @@
 
   <div class="card-head">Equipped</div>
   <div class="card">
-    {% set weap = p.equipment.get('weapon') %}
-    {% set arm  = p.equipment.get('armor') %}
-    {% for slot, it in [('weapon', weap), ('armor', arm)] %}
+    {% for slot in ['weapon', 'armor', 'accessory'] %}
+    {% set it = p.equipment.get(slot) %}
     <div class="item-row">
       <div class="item-info">
         <div style="font-size:13px;">{{ slot | capitalize }}: <span class="{% if it %}r-{{ it.rarity }}{% endif %}">{{ it.name if it else '—' }}</span></div>
-        {% if it %}<div class="item-meta">{% for k, v in it.stats.items() %}+{{ v }} {{ k.upper() }} {% endfor %}</div>{% endif %}
+        {% if it %}{{ item_stats(it) }}{% endif %}
         {% set cost = upgrade_cost(it) if it else none %}
         {% if cost %}
         {% set have = p.resources.get(cost[1], 0) %}
@@ -36,7 +36,7 @@
     {% endfor %}
   </div>
 
-  {% set equippable  = p.inventory | selectattr('item_type', 'in', ['weapon', 'armor']) | list %}
+  {% set equippable  = p.inventory | selectattr('item_type', 'in', ['weapon', 'armor', 'accessory']) | list %}
   {% set consumables = p.inventory | selectattr('item_type', 'eq', 'consumable') | list %}
 
   {% if equippable %}
@@ -46,18 +46,16 @@
     <div class="item-row">
       <div class="item-info">
         <div class="item-name r-{{ item.rarity }}">[{{ item.rarity }}] {{ item.name }}</div>
-        <div class="item-meta">
-          {{ item.item_type }}
-          {% if item.stats %}· {% for k,v in item.stats.items() %}+{{ v }} {{ k.upper() }} {% endfor %}{% endif %}
-          · Worth {{ item.value }}g
-        </div>
+        <div class="item-meta">{{ item.item_type }} · Worth {{ item.value }}g</div>
+        {{ item_stats(item) }}
+        {{ compare(item, p.equipment.get(item.item_type)) }}
       </div>
       <div class="item-actions">
         <form method="post" action="/action">
           <button class="btn-sm btn-green" name="action" value="equip_{{ i }}">Equip</button>
         </form>
         <form method="post" action="/action">
-          <button class="btn-sm btn-dim" name="action" value="sell_{{ loop.index0 + (consumables|length) }}">Sell</button>
+          <button class="btn-sm btn-dim" name="action" value="sell_{{ p.inventory.index(item) }}">Sell</button>
         </form>
       </div>
     </div>

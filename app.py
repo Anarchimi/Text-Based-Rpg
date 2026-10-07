@@ -11,9 +11,10 @@ from flask_compress import Compress
 from player import Player, PROFESSIONS
 from enemies import BOSS_TEMPLATES, spawn_enemy, spawn_final_boss
 from quests import BOUNTY_LEADER_CHANCE
-from combat import do_combat_turn, end_combat, hit_player  # noqa: F401  (hit_player re-exported for tests)
+from combat import ability_cost, do_combat_turn, end_combat, hit_player  # noqa: F401  (hit_player re-exported for tests)
 from quests import QuestLog, generate_quest
-from items import generate_shop_stock, generate_weapon, generate_armor, generate_consumable, upgrade_cost
+from items import (generate_shop_stock, generate_weapon, generate_armor, generate_consumable, upgrade_cost,
+                   STAT_LABELS, LEGENDARY_EFFECTS)
 from world import explore_step, travel_to_zone, ZONES, ZONE_LEVEL_REQ, LAIR_STEPS, get_zone
 from crafting import (TRADE_PROFESSIONS, CRAFTING_RECIPES, ZONE_RESOURCES,
                       GATHERING_SKILLS, CRAFTING_SKILLS, SKILL_ICONS,
@@ -38,6 +39,9 @@ Compress(app)
 app.jinja_env.globals['enumerate'] = enumerate
 app.jinja_env.globals['len'] = len
 app.jinja_env.globals['upgrade_cost'] = upgrade_cost
+app.jinja_env.globals['ability_cost'] = ability_cost
+app.jinja_env.globals['STAT_LABELS'] = STAT_LABELS
+app.jinja_env.globals['LEGENDARY_EFFECTS'] = LEGENDARY_EFFECTS
 
 # Saves outlive restarts: default to <repo>/instance/saves, override with RPG_SAVE_DIR
 # (point it at a persistent volume in production).
@@ -211,7 +215,8 @@ def finish_combat_victory(state):
     log       = state['combat_log']
 
     end_combat(player)
-    items, gold = enemy.loot_drop(player.level, int(player.lck) + 5 * state.get('ng_plus', 0))
+    items, gold = enemy.loot_drop(player.level, int(player.lck) + 10 * state.get('ng_plus', 0),
+                                  player_class=player.player_class)
     player.gold += gold
     player.kills += 1
     player.first_strike_used = False  # reset Ranger passive
@@ -448,7 +453,7 @@ def action():
             state['screen'] = 'combat'
 
         elif act == 'shop':
-            state['shop_stock'] = generate_shop_stock(player.level)
+            state['shop_stock'] = generate_shop_stock(player.level, player.player_class)
             state['screen'] = 'shop'
         elif act == 'inn':
             state['screen'] = 'inn'
@@ -597,7 +602,7 @@ def action():
                 idx = int(act.split('_')[1])
             except (IndexError, ValueError):
                 idx = -1
-            equippable = [i for i in player.inventory if i.item_type in ('weapon', 'armor')]
+            equippable = [i for i in player.inventory if i.item_type in ('weapon', 'armor', 'accessory')]
             if 0 <= idx < len(equippable):
                 ok, text = player.equip(equippable[idx])
                 add_msg(state, 'success' if ok else 'danger', text)

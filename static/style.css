@@ -251,6 +251,10 @@
     .r-Rare      { color: var(--blue); }
     .r-Epic      { color: var(--purple); }
     .r-Legendary { color: var(--yellow); }
+    .stat-chip   { margin-right: 8px; white-space: nowrap; }
+    .legendary-fx { color: var(--yellow); }
+    .diff-up     { color: var(--green); white-space: nowrap; }
+    .diff-down   { color: var(--red); white-space: nowrap; }
 
     /* ── Combat ── */
     .enemy-card {

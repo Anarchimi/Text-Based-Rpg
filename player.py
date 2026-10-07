@@ -168,7 +168,7 @@ class Player:
 
         self.gold      = 50
         self.inventory = []
-        self.equipment = {"weapon": None, "armor": None}
+        self.equipment = {"weapon": None, "armor": None, "accessory": None}
         self.skills_learned = []
 
         self._stats_version = STATS_VERSION
@@ -183,6 +183,7 @@ class Player:
         self.profession         = None
         self.prof_skills_learned = []
         self.first_strike_used  = False  # for Ranger passive
+        self.second_wind_used   = False  # "Second Wind" legendary, once per fight
 
         # Trade / gathering professions
         self.trade_profession = None
@@ -202,34 +203,45 @@ class Player:
         return sum(skill_stats(sk).get(stat, 0)
                    for sk in self.skills_learned + self.prof_skills_learned)
 
+    def gear_stat(self, stat):
+        """Sum of `stat` across everything equipped (base stats and bonus stats)."""
+        return sum(it.stats.get(stat, 0) for it in self.equipment.values() if it)
+
+    def has_effect(self, name):
+        """True if any equipped item carries the legendary effect `name`."""
+        return any(it and it.legendary == name for it in self.equipment.values())
+
+    @property
+    def crit_bonus(self):
+        return self.gear_stat("crit") / 100
+
     def _temp(self, stat):
         return sum(b["amount"] for b in self.temp_buffs if b["stat"] in (stat, "all"))
 
     @property
     def str(self):
-        eq_bonus = self.equipment["weapon"].stats.get("str", 0) if self.equipment["weapon"] else 0
-        return self.base_str + self.skill_bonus("str") + eq_bonus + self._temp("str")
+        return self.base_str + self.skill_bonus("str") + self.gear_stat("str") + self._temp("str")
 
     @property
     def dex(self):
-        return self.base_dex + self.skill_bonus("dex")
+        return self.base_dex + self.skill_bonus("dex") + self.gear_stat("dex")
 
     @property
     def int(self):
-        return self.base_int + self.skill_bonus("int")
+        return self.base_int + self.skill_bonus("int") + self.gear_stat("int")
 
     @property
     def vit(self):
-        return self.base_vit + self.skill_bonus("vit") + self._temp("vit")
+        return self.base_vit + self.skill_bonus("vit") + self.gear_stat("vit") + self._temp("vit")
 
     @property
     def lck(self):
-        return self.base_lck + self.skill_bonus("lck")
+        return self.base_lck + self.skill_bonus("lck") + self.gear_stat("lck")
 
     @property
     def attack(self):
         base = self.str + self.dex // 3
-        weap = self.equipment["weapon"].stats.get("atk", 0) if self.equipment["weapon"] else 0
+        weap = self.gear_stat("atk")
         berserk = 2 if "Berserk" in self.buffs else 1
         battle_cry = 1.2 if "Battle Cry" in self.buffs else 1
         weakened = 0.75 if "Weakened" in self.debuffs else 1
@@ -238,7 +250,7 @@ class Player:
 
     @property
     def spell_power(self):
-        weap = self.equipment["weapon"].stats.get("atk", 0) if self.equipment["weapon"] else 0
+        weap = self.gear_stat("atk")
         weakened = 0.75 if "Weakened" in self.debuffs else 1
         return int((self.int * SPELL_INT_MULT + weap) * weakened)
 
@@ -250,7 +262,7 @@ class Player:
     @property
     def defense(self):
         base = int(self.vit * 0.8)
-        arm  = self.equipment["armor"].stats.get("def", 0) if self.equipment["armor"] else 0
+        arm  = self.gear_stat("def")
         knight_bonus = int((base + arm) * 0.25) if self.profession == "Knight" else 0
         champion_bonus = int((base + arm) * 0.10) if self.profession == "Champion" else 0
         berserk_pen = (base + arm) // 2 if "Berserk" in self.buffs else 0
@@ -259,7 +271,7 @@ class Player:
     @property
     def speed(self):
         base = self.dex // 2
-        weap_spd = self.equipment["weapon"].stats.get("spd", 0) if self.equipment["weapon"] else 0
+        weap_spd = self.gear_stat("spd")
         return base + weap_spd
 
     # ── Leveling ──────────────────────────────────────────────────────────────
@@ -362,15 +374,15 @@ class Player:
         self.inventory.append(item)
 
     def equip(self, item):
-        if item.item_type not in ("weapon", "armor"):
+        if item.item_type not in ("weapon", "armor", "accessory"):
             return False, "Can't equip that."
         self.inventory.remove(item)
-        old = self.equipment[item.item_type]
+        old = self.equipment.get(item.item_type)
         if old:
             self.inventory.append(old)
-            self._grow_pools(-old.stats.get("hp", 0), 0)
+            self._grow_pools(-old.stats.get("hp", 0), -old.stats.get("mp", 0))
         self.equipment[item.item_type] = item
-        self._grow_pools(item.stats.get("hp", 0), 0)
+        self._grow_pools(item.stats.get("hp", 0), item.stats.get("mp", 0))
         return True, f"Equipped {item.name}."
 
     def upgrade_equipped(self, slot):
@@ -389,9 +401,9 @@ class Player:
             return False, f"Upgrading needs {qty}× {bar} (you have {self.resources.get(bar, 0)}). Smith them at the Craft menu."
         self.gold -= gold
         self.remove_resource(bar, qty)
-        old_hp = item.stats.get("hp", 0)
+        old_hp, old_mp = item.stats.get("hp", 0), item.stats.get("mp", 0)
         item.apply_upgrade()
-        self._grow_pools(item.stats.get("hp", 0) - old_hp, 0)
+        self._grow_pools(item.stats.get("hp", 0) - old_hp, item.stats.get("mp", 0) - old_mp)
         gains = ", ".join(f"{k.upper()} {v}" for k, v in item.stats.items())
         return True, f"The smith reforges it: {item.name} ({gains})."
 
@@ -513,6 +525,8 @@ class Player:
     def __setstate__(self, d):
         # debuffs used to be an unused {} on old saves; make sure it exists.
         d.setdefault("debuffs", {})
+        d.get("equipment", {}).setdefault("accessory", None)
+        d.setdefault("second_wind_used", False)
         self.__dict__.update(d)
         if d.get("_stats_version", 1) < STATS_VERSION:
             self._migrate_stats_v2()
