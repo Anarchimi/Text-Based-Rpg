@@ -26,8 +26,12 @@
         {% for stat_key, val in prof_data.stat_bonus.items() %}
           {% if val > 0 %}+{{ val }}{% else %}{{ val }}{% endif %} {{ stat_labels.get(stat_key, stat_key) }}
         {% endfor %}<br>
-        First skill: {{ prof_data.skills[0].name }} ({{ prof_data.skills[0].desc }})
       </div>
+      {% set sig = profession_abilities[prof_name] %}
+      <div class="prof-card-passive" style="margin-top:6px;">✨ <b>{{ sig.name }}</b>{% if sig.mp_cost %} ({{ sig.mp_cost }} MP){% endif %} — {{ sig.description }}</div>
+      {% for sk in prof_data.skills if sk.perk %}
+      <div class="prof-card-stats" style="margin-top:4px;">Capstone ({{ sk.name }}): {{ sk.desc.split(' · ', 1)[1] }}</div>
+      {% endfor %}
       <button class="{{ btn_cls }} btn-center" name="action" value="{{ prof_name }}">Choose {{ prof_name }}</button>
     </div>
     {% endfor %}

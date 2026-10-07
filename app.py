@@ -9,6 +9,7 @@ from flask import Flask, session, request, redirect, url_for, render_template
 from flask_compress import Compress
 
 from player import Player, PROFESSIONS
+from abilities import PROFESSION_ABILITIES
 from enemies import BOSS_TEMPLATES, spawn_enemy, spawn_final_boss
 from quests import BOUNTY_LEADER_CHANCE
 from combat import ability_cost, do_combat_turn, end_combat, hit_player  # noqa: F401  (hit_player re-exported for tests)
@@ -42,6 +43,7 @@ app.jinja_env.globals['len'] = len
 app.jinja_env.globals['upgrade_cost'] = upgrade_cost
 app.jinja_env.globals['depth_effects'] = depth_effects
 app.jinja_env.globals['max_depth'] = MAX_DEPTH
+app.jinja_env.globals['profession_abilities'] = PROFESSION_ABILITIES
 app.jinja_env.globals['ability_cost'] = ability_cost
 app.jinja_env.globals['STAT_LABELS'] = STAT_LABELS
 app.jinja_env.globals['LEGENDARY_EFFECTS'] = LEGENDARY_EFFECTS

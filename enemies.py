@@ -74,7 +74,7 @@ BOSS_TEMPLATES = [
      "phase2": "Ignaroth roars. Molten scales fall away, revealing white-hot flesh."},
 ]
 
-FINAL_BOSS = {"name": "Chaos Dragon Lord", "zone": 5, "hp": 900, "atk": 70, "def": 28, "xp": 3000, "gold": 1000,
+FINAL_BOSS = {"name": "Chaos Dragon Lord", "zone": 5, "hp": 1000, "atk": 78, "def": 28, "xp": 3000, "gold": 1000,
               "abilities": ["Chaos Breath", "World Ender", "Eternal Flame", "Void Crush"],
               "phase2": "THE CHAOS DRAGON LORD UNFURLS ITS TRUE FORM. Reality buckles."}
 

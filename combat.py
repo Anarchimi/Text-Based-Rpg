@@ -18,6 +18,10 @@ VAMPIRIC_HEAL = 0.10
 THORNS_REFLECT = 0.20
 EXECUTIONER_THRESHOLD = 0.35
 BULWARK_HEAL = 0.10
+# Profession perks
+MOMENTUM_STEP = 0.06
+MOMENTUM_MAX = 5
+BLIND_MISS = 0.40
 
 
 def flee_chance(player, enemy):
@@ -35,7 +39,7 @@ def hit_player(player, dmg, clog, defending=False, attacker=None):
         clog('buff', 'You evade the attack!')
         return 0
     if defending:
-        dmg = max(1, dmg // 2)
+        dmg = max(1, dmg // 4 if player.has_perk('Bastion') else dmg // 2)
     if 'Mana Shield' in player.buffs:
         absorbed = min(player.mp, dmg // 2)
         if absorbed:
@@ -43,6 +47,9 @@ def hit_player(player, dmg, clog, defending=False, attacker=None):
             dmg -= absorbed
             clog('buff', f'Mana Shield absorbs {absorbed} damage!')
     player.hp = max(0, player.hp - dmg)
+    if attacker is not None and dmg and 'Riposte' in player.buffs:
+        dealt = attacker.take_damage(int(player.attack * 0.6))
+        clog('player', f'Riposte! You strike back for {dealt}.')
     if attacker is not None and dmg and player.has_effect('Thorns'):
         reflected = max(1, int(dmg * THORNS_REFLECT))
         attacker.hp = max(0, attacker.hp - reflected)
@@ -55,6 +62,8 @@ def end_combat(player):
     player.debuffs.clear()
     player.buffs.pop('Steadfast', None)
     player.second_wind_used = False
+    player.momentum = 0
+    player.deathless_used = False
 
 
 def ability_cost(player, ability):
@@ -70,6 +79,8 @@ def _legendary_damage(player, enemy, dmg):
 
 
 def _after_hit(player, actual, clog):
+    if actual and 'Blood Frenzy' in player.buffs:
+        _heal(player, int(actual * 0.15), 'Blood Frenzy', clog)
     if actual and player.has_effect('Vampiric'):
         healed = min(max(1, int(actual * VAMPIRIC_HEAL)), player.max_hp - player.hp)
         if healed:
@@ -102,27 +113,106 @@ def _apply_enemy_status(enemy, status, power, clog):
         clog('stun', f'{enemy.name} is chilled! (ATK -25%)')
 
 
+def rage_threshold(player):
+    return 0.5 if player.has_perk('Undying Rage') else 0.3
+
+
+def _enemy_afflicted(enemy):
+    return enemy.stunned or enemy.dot > 0 or 'Chilled' in enemy.statuses
+
+
+def _damage_mods(player, enemy, dmg, clog, spell=False):
+    """Profession passives, perks and buffs that scale any player damage."""
+    if spell and player.profession == 'Sorcerer':
+        dmg *= 1.3
+    if spell and player.profession == 'Necromancer' and enemy.hp < enemy.max_hp * 0.5:
+        dmg *= 1.2
+    if player.profession == 'Berserker' and player.hp < player.max_hp * rage_threshold(player):
+        dmg *= 1.5
+        clog('buff', 'BERSERK RAGE! +50% ATK!')
+    if 'Blood Frenzy' in player.buffs:
+        dmg *= 1.4
+    if player.has_perk('Momentum') and player.momentum:
+        dmg *= 1 + MOMENTUM_STEP * player.momentum
+    if player.has_perk('Exploit Weakness') and _enemy_afflicted(enemy):
+        dmg *= 1.3
+    return _legendary_damage(player, enemy, int(dmg))
+
+
+def _build_momentum(player):
+    if player.has_perk('Momentum'):
+        player.momentum = min(MOMENTUM_MAX, player.momentum + 1)
+
+
 def _player_attack(player, enemy, clog):
     bonus = random.randint(-2, 4)
     crit = random.random() < (0.05 + player.dex / 200 + player.crit_bonus)
     dmg = int((player.attack + bonus) * (1.8 if crit else 1.0))
-    dmg = _legendary_damage(player, enemy, dmg)
 
-    if player.profession == 'Ranger' and not player.first_strike_used:
-        dmg = int(dmg * 1.2)
+    first_strike = player.profession == 'Ranger' and not player.first_strike_used
+    if first_strike:
+        boost = 1.5 if player.has_perk("Hunter's Mark") else 1.2
+        dmg = int(dmg * boost)
         player.first_strike_used = True
-        clog('buff', 'Ranger first-strike bonus! +20% ATK')
-    if player.profession == 'Berserker' and player.hp < player.max_hp * 0.3:
-        dmg = int(dmg * 1.5)
-        clog('buff', 'BERSERK RAGE! +50% ATK!')
+        clog('buff', f'Ranger first-strike bonus! +{int((boost - 1) * 100)}% ATK')
+    dmg = _damage_mods(player, enemy, dmg, clog)
 
     actual = _strike(enemy, dmg, clog)
+    _build_momentum(player)
     if actual is None:
         return
     if crit:
         clog('crit', '★ CRITICAL HIT!')
     clog('player', f'{player.name} attacks for {actual} damage.')
     _after_hit(player, actual, clog)
+    if first_strike and player.has_perk("Hunter's Mark"):
+        enemy.dot, enemy.dot_dmg, enemy.dot_name = max(enemy.dot, 3), max(enemy.dot_dmg, int(player.attack * 0.25)), 'Bleed'
+        clog('poison', f"Hunter's Mark: {enemy.name} bleeds for {enemy.dot_dmg}/turn!")
+
+
+def _ability_hit(player, enemy, picked, power, clog):
+    """One strike of a damage ability. Returns damage dealt (0 if dodged)."""
+    effect = picked.calculate_effect(power)
+    crit_chance = 0.12 + player.crit_bonus
+    if picked.name == 'Shadow Step':
+        crit_chance += SHADOW_STEP_CRIT_BONUS
+    if player.has_perk('Spellweaver'):
+        crit_chance += 0.15
+    if picked.name == 'Volley':  # arrows crit like basic attacks
+        crit_chance = 0.05 + player.dex / 200 + player.crit_bonus
+    if picked.name == 'Shadowstrike' and (enemy.stunned or enemy.hp < enemy.max_hp * 0.4):
+        crit_chance = 1.0
+    crit = random.random() < crit_chance
+    dmg = effect * (1.5 if crit else 1.0)
+
+    if picked.name == 'Convergence' and (enemy.dot_name == 'Burn' and enemy.dot > 0 or 'Chilled' in enemy.statuses):
+        dmg *= 2
+        clog('crit', 'CONVERGENCE! 2× DAMAGE!')
+    if picked.name == 'Execute' and enemy.hp < enemy.max_hp * 0.30:
+        dmg *= 2
+        clog('crit', 'EXECUTE! 2× DAMAGE!')
+    if picked.name == 'Death Mark':
+        mult = 3
+        if player.profession == 'Assassin':
+            mult = 5 if enemy.hp < enemy.max_hp * 0.40 else 4
+        dmg *= mult
+        clog('crit', f'DEATH MARK! {mult}× DAMAGE!')
+    dmg = _damage_mods(player, enemy, dmg, clog, spell=player.player_class == 'Mage')
+
+    actual = _strike(enemy, dmg, clog)
+    if actual is None:
+        return 0
+    if crit:
+        clog('crit', '★ CRITICAL!')
+    clog('player', f'{picked.name}: {actual} damage!')
+    _after_hit(player, actual, clog)
+    if picked.status and random.random() < picked.status_chance:
+        _apply_enemy_status(enemy, picked.status, power, clog)
+    if player.profession == 'Elementalist':
+        wildfire = player.has_perk('Wildfire')
+        if random.random() < (0.5 if wildfire else 0.3):
+            _apply_enemy_status(enemy, 'Burning', power * (1.5 if wildfire else 1), clog)
+    return actual
 
 
 def _player_ability(player, enemy, picked, clog):
@@ -130,46 +220,24 @@ def _player_ability(player, enemy, picked, clog):
     if player.mp < cost:
         clog('danger', 'Not enough MP!')
         return False
+    hp_cost = int(player.max_hp * picked.hp_cost_pct)
+    if hp_cost and player.hp <= hp_cost:
+        clog('danger', 'Too wounded to pay the blood price!')
+        return False
     player.mp -= cost
+    if hp_cost:
+        player.hp -= hp_cost
+        clog('danger', f'{picked.name} costs {hp_cost} HP.')
     power = player.ability_power
     effect = picked.calculate_effect(power)
 
     if picked.ability_type == 'damage':
-        crit_chance = 0.12 + player.crit_bonus + (SHADOW_STEP_CRIT_BONUS if picked.name == 'Shadow Step' else 0)
-        crit = random.random() < crit_chance
-        dmg = int(effect * (1.5 if crit else 1.0))
-
-        if player.profession == 'Sorcerer':
-            dmg = int(dmg * 1.3)
-        if player.profession == 'Necromancer' and enemy.hp < enemy.max_hp * 0.5:
-            dmg = int(dmg * 1.2)
-        if player.profession == 'Berserker' and player.hp < player.max_hp * 0.3:
-            dmg = int(dmg * 1.5)
-            clog('buff', 'BERSERK RAGE! +50% ATK!')
-
-        if picked.name == 'Execute' and enemy.hp < enemy.max_hp * 0.30:
-            dmg = int(dmg * 2)
-            clog('crit', 'EXECUTE! 2× DAMAGE!')
-        if picked.name == 'Death Mark':
-            mult = 3
-            if player.profession == 'Assassin':
-                mult = 5 if enemy.hp < enemy.max_hp * 0.40 else 4
-            dmg = int(dmg * mult)
-            clog('crit', f'DEATH MARK! {mult}× DAMAGE!')
-
-        dmg = _legendary_damage(player, enemy, dmg)
-        actual = _strike(enemy, dmg, clog)
-        if actual is None:
-            return True
-        if crit:
-            clog('crit', '★ CRITICAL!')
-        clog('player', f'{picked.name}: {actual} damage!')
-        _after_hit(player, actual, clog)
-
-        if picked.status and random.random() < picked.status_chance:
-            _apply_enemy_status(enemy, picked.status, power, clog)
-        if player.profession == 'Elementalist' and random.random() < 0.30:
-            _apply_enemy_status(enemy, 'Burning', power, clog)
+        total = sum(_ability_hit(player, enemy, picked, power, clog) for _ in range(picked.hits))
+        _build_momentum(player)
+        if picked.name == 'Rallying Strike':
+            _heal(player, int(player.max_hp * 0.10), 'Rallying Strike', clog)
+        if picked.name == 'Soul Harvest' and total:
+            _heal(player, total // 2, 'Soul Harvest', clog)
 
     elif picked.ability_type == 'heal':
         healed = min(effect, player.max_hp - player.hp)
@@ -182,19 +250,35 @@ def _player_ability(player, enemy, picked, clog):
         turns, dot_dmg = 3, effect
         if player.profession == 'Trickster':
             turns, dot_dmg = 5, int(dot_dmg * 1.5)
-        enemy.dot = turns
+        if player.has_perk('Stacking Venom') and enemy.dot > 0 and enemy.dot_name == 'Poison':
+            dot_dmg = min(enemy.dot_dmg + dot_dmg, dot_dmg * 3)
+            clog('poison', 'Stacking Venom: the poison deepens!')
+        enemy.dot = max(enemy.dot, turns)
         enemy.dot_dmg = dot_dmg
         enemy.dot_name = 'Poison'
         clog('poison', f'Poisoned {enemy.name} for {dot_dmg} dmg/turn x{turns} turns!')
+    elif picked.name == 'Blinding Powder':
+        enemy.statuses['Blinded'] = 4
+        clog('stun', f'{enemy.name} is blinded! (misses 40% of attacks for 3 turns)')
     elif picked.ability_type == 'debuff':
         enemy.stunned = True
         clog('stun', f'{enemy.name} is blinded and will lose its next turn!')
     return True
 
 
+def _heal(player, amount, source, clog):
+    healed = min(max(0, amount), player.max_hp - player.hp)
+    if healed:
+        player.hp += healed
+        clog('heal', f'{source}: +{healed} HP')
+
+
 # ── Enemy side ─────────────────────────────────────────────────────────────────
 
 def _enemy_hit(player, enemy, mult, clog, defending):
+    if 'Blinded' in enemy.statuses and random.random() < BLIND_MISS:
+        clog('buff', f'{enemy.name} swings blindly and misses!')
+        return 0
     raw = enemy.effective_atk * mult * random.uniform(0.9, 1.1)
     return hit_player(player, mitigate(raw, player.defense), clog, defending, attacker=enemy)
 
@@ -315,7 +399,10 @@ def do_combat_turn(state, action, ability_idx=None, item_idx=None):
         log.append({'kind': kind, 'text': text})
 
     defending = False
+    if action not in ('attack', 'ability'):
+        player.momentum = 0
     if 'Stunned' in player.debuffs:
+        player.momentum = 0
         del player.debuffs['Stunned']
         player.buffs['Steadfast'] = STUN_IMMUNITY_TURNS
         clog('stun', 'You are stunned and cannot act!')
@@ -372,6 +459,10 @@ def do_combat_turn(state, action, ability_idx=None, item_idx=None):
         if not b.endswith('_buff') and b != 'Steadfast':
             clog('warning', f'{b} wore off.')
 
+    if player.hp < player.max_hp * 0.25 and player.has_perk('Deathless') and not player.deathless_used:
+        player.deathless_used = True
+        player.hp = max(1, player.hp) + int(player.max_hp * 0.30)
+        clog('heal', 'Deathless! Death refuses you — +30% HP.')
     if player.hp <= 0 and player.has_effect('Second Wind') and not player.second_wind_used:
         player.hp = 1
         player.second_wind_used = True

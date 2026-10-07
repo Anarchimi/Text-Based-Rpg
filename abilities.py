@@ -11,7 +11,7 @@ class Ability:
     """
 
     def __init__(self, name, mp_cost, description, ability_type, value, level_req=1,
-                 target="enemy", mult=1.0, status=None, status_chance=0.0):
+                 target="enemy", mult=1.0, status=None, status_chance=0.0, hits=1, hp_cost_pct=0.0):
         self.name = name
         self.mp_cost = mp_cost
         self.description = description
@@ -22,6 +22,8 @@ class Ability:
         self.mult = mult
         self.status = status              # enemy status applied on hit, e.g. "Stunned"
         self.status_chance = status_chance
+        self.hits = hits                  # damage abilities: separate strikes, each rolls its own crit
+        self.hp_cost_pct = hp_cost_pct    # some abilities cost a share of max HP instead of MP
 
     def calculate_effect(self, power):
         if self.ability_type == "damage":
@@ -65,6 +67,21 @@ ROGUE_ABILITIES = [
     Ability("Smoke Bomb",   15, "Blind the enemy: it loses its next turn",           "debuff", 20, 10),
     Ability("Death Mark",   25, "1.1× ATK, then tripled",                            "damage", 55, 14, mult=1.1),
 ]
+
+# ── Profession signature abilities (granted on choosing the profession) ──────
+# Effects beyond plain damage are implemented in combat.py by ability name.
+PROFESSION_ABILITIES = {
+    "Knight":       Ability("Riposte",          12, "3 turns: strike back for 60% ATK whenever you're hit", "buff", 0, 5, "self"),
+    "Berserker":    Ability("Blood Frenzy",      0, "Costs 10% max HP. 3 turns: +40% damage, heal 15% of damage dealt",
+                            "buff", 0, 5, "self", hp_cost_pct=0.10),
+    "Champion":     Ability("Rallying Strike",  14, "1.6× ATK and heal 10% of max HP",                  "damage", 0, 5, mult=1.6),
+    "Sorcerer":     Ability("Arcane Overload",  40, "A colossal blast (3.6× spell power)",              "damage", 0, 5, mult=3.6),
+    "Elementalist": Ability("Convergence",      20, "1.5× spell power, doubled vs burning or chilled enemies", "damage", 0, 5, mult=1.5),
+    "Necromancer":  Ability("Soul Harvest",     18, "1.6× spell power, heal 50% of the damage dealt",   "damage", 0, 5, mult=1.6),
+    "Assassin":     Ability("Shadowstrike",     15, "2× ATK, always crits on stunned or wounded (<40% HP) enemies", "damage", 0, 5, mult=2.0),
+    "Ranger":       Ability("Volley",           12, "Three arrows of 0.7× ATK, each can crit",          "damage", 0, 5, mult=0.7, hits=3),
+    "Trickster":    Ability("Blinding Powder",  14, "The enemy misses 40% of its attacks for 3 turns",  "debuff", 0, 5),
+}
 
 CLASS_ABILITIES = {
     "Warrior": WARRIOR_ABILITIES,

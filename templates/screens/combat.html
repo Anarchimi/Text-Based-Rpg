@@ -43,7 +43,7 @@
     {% if e.charging %}<div style="font-size:13px;color:var(--red);margin-top:4px;font-weight:bold;">⚠ CHARGING {{ e.charging | upper }} — Defend, dodge or stun!</div>{% endif %}
     {% if e.stunned %}<div style="font-size:12px;color:var(--yellow);margin-top:4px;">⚡ STUNNED</div>{% endif %}
     {% if e.dot > 0 %}<div style="font-size:12px;color:var(--purple);margin-top:4px;">☠ {{ e.dot_name | upper }} ({{ e.dot_dmg }} dmg/turn)</div>{% endif %}
-    {% for name in e.statuses %}<div style="font-size:12px;color:var(--{{ 'cyan' if name == 'Chilled' else 'yellow' }});margin-top:4px;">{{ {'Chilled': '❄ CHILLED (ATK -25%)', 'Enraged': '💢 ENRAGED (ATK +30%)', 'Shielded': '🛡 SHIELDED (half damage)', 'Evading': '💨 EVADING (dodges next hit)'}.get(name, name) }}</div>{% endfor %}
+    {% for name in e.statuses %}<div style="font-size:12px;color:var(--{{ 'cyan' if name == 'Chilled' else 'yellow' }});margin-top:4px;">{{ {'Chilled': '❄ CHILLED (ATK -25%)', 'Enraged': '💢 ENRAGED (ATK +30%)', 'Shielded': '🛡 SHIELDED (half damage)', 'Evading': '💨 EVADING (dodges next hit)', 'Blinded': '🌫 BLINDED (misses 40%)'}.get(name, name) }}</div>{% endfor %}
   </div>
 
   <div class="card-head">Turn {{ state.combat_turn }}</div>

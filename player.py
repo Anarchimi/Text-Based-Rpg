@@ -1,5 +1,5 @@
 import random
-from abilities import get_available_abilities
+from abilities import PROFESSION_ABILITIES, get_available_abilities
 
 XP_TABLE = [0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200,
             4000, 5000, 6200, 7600, 9200, 11000, 13200, 15800, 18800, 22200]
@@ -62,7 +62,7 @@ PROFESSIONS = {
             "skills": [
                 {"name": "Iron Wall",    "desc": "+8 VIT",             "stats": {"vit": 8},  "cost": 1},
                 {"name": "Stalwart",     "desc": "+30 Max HP, +5 VIT", "stats": {"max_hp": 30, "vit": 5}, "cost": 2},
-                {"name": "Unbreakable",  "desc": "+80 Max HP",         "stats": {"max_hp": 80}, "cost": 3},
+                {"name": "Unbreakable",  "desc": "+80 Max HP · Bastion: Defending blocks 75% of damage instead of 50%.",         "stats": {"max_hp": 80}, "cost": 3, "perk": "Bastion"},
             ],
         },
         "Berserker": {
@@ -71,7 +71,7 @@ PROFESSIONS = {
             "skills": [
                 {"name": "Bloodlust",    "desc": "+8 STR",  "stats": {"str": 8},  "cost": 1},
                 {"name": "Frenzy",       "desc": "+15 STR", "stats": {"str": 15}, "cost": 2},
-                {"name": "War Incarnate","desc": "+25 STR", "stats": {"str": 25}, "cost": 3},
+                {"name": "War Incarnate","desc": "+25 STR · Undying Rage: Berserker rage triggers below 50% HP instead of 30%.", "stats": {"str": 25}, "cost": 3, "perk": "Undying Rage"},
             ],
         },
         "Champion": {
@@ -80,7 +80,7 @@ PROFESSIONS = {
             "skills": [
                 {"name": "Valor",        "desc": "+6 STR, +4 VIT", "stats": {"str": 6, "vit": 4},  "cost": 1},
                 {"name": "Victor's Edge","desc": "+12 STR",         "stats": {"str": 12}, "cost": 2},
-                {"name": "Grand Legacy", "desc": "+20 STR, +10 VIT","stats": {"str": 20, "vit": 10}, "cost": 3},
+                {"name": "Grand Legacy", "desc": "+20 STR, +10 VIT · Momentum: Each attack or damaging ability in a row adds 6% damage, up to 30%. Defending or using an item resets it.","stats": {"str": 20, "vit": 10}, "cost": 3, "perk": "Momentum"},
             ],
         },
     },
@@ -91,7 +91,7 @@ PROFESSIONS = {
             "skills": [
                 {"name": "Overcharge",    "desc": "+8 INT",          "stats": {"int": 8},  "cost": 1},
                 {"name": "Arcane Surge",  "desc": "+15 INT, +20 MP", "stats": {"int": 15, "max_mp": 20}, "cost": 2},
-                {"name": "Transcendence", "desc": "+25 INT",          "stats": {"int": 25}, "cost": 3},
+                {"name": "Transcendence", "desc": "+25 INT · Spellweaver: Abilities get 15% more critical chance.",          "stats": {"int": 25}, "cost": 3, "perk": "Spellweaver"},
             ],
         },
         "Elementalist": {
@@ -100,7 +100,7 @@ PROFESSIONS = {
             "skills": [
                 {"name": "Attunement",     "desc": "+6 INT, +20 MP",  "stats": {"int": 6, "max_mp": 20},  "cost": 1},
                 {"name": "Volatile Magic", "desc": "+12 INT, +30 MP", "stats": {"int": 12, "max_mp": 30}, "cost": 2},
-                {"name": "Avatar",         "desc": "+20 INT, +50 MP", "stats": {"int": 20, "max_mp": 50}, "cost": 3},
+                {"name": "Avatar",         "desc": "+20 INT, +50 MP · Wildfire: Burn triggers on half of your ability hits (up from 30%) and burns 50% hotter.", "stats": {"int": 20, "max_mp": 50}, "cost": 3, "perk": "Wildfire"},
             ],
         },
         "Necromancer": {
@@ -109,7 +109,7 @@ PROFESSIONS = {
             "skills": [
                 {"name": "Soul Tap",    "desc": "+6 INT, +25 MP",  "stats": {"int": 6, "max_mp": 25},  "cost": 1},
                 {"name": "Life Drain",  "desc": "+12 INT, +30 HP", "stats": {"int": 12, "max_hp": 30}, "cost": 2},
-                {"name": "Lich Form",   "desc": "+20 INT, +60 HP", "stats": {"int": 20, "max_hp": 60}, "cost": 3},
+                {"name": "Lich Form",   "desc": "+20 INT, +60 HP · Deathless: Once per fight, falling below 25% HP restores 30% of max HP.", "stats": {"int": 20, "max_hp": 60}, "cost": 3, "perk": "Deathless"},
             ],
         },
     },
@@ -120,7 +120,7 @@ PROFESSIONS = {
             "skills": [
                 {"name": "Blade Mastery", "desc": "+8 DEX",           "stats": {"dex": 8},  "cost": 1},
                 {"name": "Predator",      "desc": "+12 DEX, +5 LCK",  "stats": {"dex": 12, "lck": 5}, "cost": 2},
-                {"name": "Shadow Lord",   "desc": "+20 DEX, +10 LCK", "stats": {"dex": 20, "lck": 10}, "cost": 3},
+                {"name": "Shadow Lord",   "desc": "+20 DEX, +10 LCK · Exploit Weakness: 30% more damage to enemies that are stunned, chilled, burning or poisoned.", "stats": {"dex": 20, "lck": 10}, "cost": 3, "perk": "Exploit Weakness"},
             ],
         },
         "Ranger": {
@@ -129,7 +129,7 @@ PROFESSIONS = {
             "skills": [
                 {"name": "Eagle Eye",   "desc": "+6 DEX, +5 LCK",  "stats": {"dex": 6, "lck": 5},  "cost": 1},
                 {"name": "Hunter",      "desc": "+12 DEX, +5 LCK", "stats": {"dex": 12, "lck": 5}, "cost": 2},
-                {"name": "Wind Runner", "desc": "+20 DEX, +10 LCK","stats": {"dex": 20, "lck": 10}, "cost": 3},
+                {"name": "Wind Runner", "desc": "+20 DEX, +10 LCK · Hunter's Mark: First strike bonus rises to 50% and makes the target bleed.","stats": {"dex": 20, "lck": 10}, "cost": 3, "perk": "Hunter's Mark"},
             ],
         },
         "Trickster": {
@@ -138,7 +138,7 @@ PROFESSIONS = {
             "skills": [
                 {"name": "Venom Craft",   "desc": "+6 DEX, +4 INT",  "stats": {"dex": 6, "int": 4},  "cost": 1},
                 {"name": "Toxic Mastery", "desc": "+10 DEX, +6 INT", "stats": {"dex": 10, "int": 6}, "cost": 2},
-                {"name": "Poison Adept",  "desc": "+15 DEX, +10 INT","stats": {"dex": 15, "int": 10}, "cost": 3},
+                {"name": "Poison Adept",  "desc": "+15 DEX, +10 INT · Stacking Venom: Poisoning a poisoned enemy adds to the poison instead of replacing it (up to 3 stacks).","stats": {"dex": 15, "int": 10}, "cost": 3, "perk": "Stacking Venom"},
             ],
         },
     },
@@ -186,6 +186,8 @@ class Player:
         self.first_strike_used  = False  # for Ranger passive
         self.second_wind_used   = False  # "Second Wind" legendary, once per fight
         self.elixirs_used       = {}     # {"buff_str": n, "buff_int": n}, capped at ELIXIR_CAP
+        self.momentum           = 0      # Champion "Momentum" perk, per fight
+        self.deathless_used     = False  # Necromancer "Deathless" perk, once per fight
 
         # Trade / gathering professions
         self.trade_profession = None
@@ -369,7 +371,17 @@ class Player:
 
     # ── Abilities ──────────────────────────────────────────────────────────────
     def get_abilities(self):
-        return get_available_abilities(self.player_class, self.level)
+        abilities = get_available_abilities(self.player_class, self.level)
+        signature = PROFESSION_ABILITIES.get(self.profession)
+        return abilities + [signature] if signature else abilities
+
+    def has_perk(self, perk):
+        """Capstone perks come from learned profession skills (looked up by name, so older
+        saves holding stale skill dicts still get them)."""
+        if not self.profession:
+            return False
+        defs = {sk["name"]: sk for sk in PROFESSIONS[self.player_class][self.profession]["skills"]}
+        return any(defs.get(sk["name"], {}).get("perk") == perk for sk in self.prof_skills_learned)
 
     # ── Inventory ──────────────────────────────────────────────────────────────
     def add_item(self, item):
@@ -536,6 +548,8 @@ class Player:
         d.get("equipment", {}).setdefault("accessory", None)
         d.setdefault("second_wind_used", False)
         d.setdefault("elixirs_used", {})
+        d.setdefault("momentum", 0)
+        d.setdefault("deathless_used", False)
         self.__dict__.update(d)
         if d.get("_stats_version", 1) < STATS_VERSION:
             self._migrate_stats_v2()

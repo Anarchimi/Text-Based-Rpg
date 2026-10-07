@@ -63,7 +63,7 @@ All derived stats (`str`, `dex`, `int`, `vit`, `lck`, `attack`, `defense`, `spee
 
 **Player has two profession layers:**
 1. **Trade profession** (chosen at character creation): controls gathering/crafting XP bonuses. Stored in `player.trade_profession`.
-2. **Combat profession** (chosen at level 5): passive combat bonuses. Stored in `player.profession`. Options depend on base class (Warrior → Knight/Berserker/Champion, Mage → Sorcerer/Elementalist/Necromancer, Rogue → Assassin/Ranger/Trickster).
+2. **Combat profession** (chosen at level 5): stored in `player.profession`. Options depend on base class (Warrior → Knight/Berserker/Champion, Mage → Sorcerer/Elementalist/Necromancer, Rogue → Assassin/Ranger/Trickster). Each has: a passive and stat bonus (`PROFESSIONS`), a **signature ability** added to `get_abilities()` (`PROFESSION_ABILITIES` in `abilities.py`: Riposte, Blood Frenzy, Rallying Strike, Arcane Overload, Convergence, Soul Harvest, Shadowstrike, Volley, Blinding Powder), and a **capstone perk** on its cost-3 profession skill (`"perk"` key; checked with `player.has_perk(name)`, which looks skills up by name so older saves get it too). Signature and perk effects live in `combat.py`; `tests/test_professions.py` has one test per signature and per perk and fails if a profession lacks either.
 
 ### Items (`items.py`)
 
