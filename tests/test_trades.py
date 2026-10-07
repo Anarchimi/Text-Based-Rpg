@@ -1041,3 +1041,28 @@ def test_new_game_plus_drops_the_old_trail():
     assert st['explore_options']
     game_app.start_new_game_plus(st)
     assert st['zone'] == 1 and st['depth'] == 0 and st['explore_options'] is None
+
+
+@pytest.mark.parametrize('trade', ['Blacksmith', 'Fisher'])   # discounted and full upgrade prices
+@pytest.mark.parametrize('rarity', ['Rare', 'Epic', 'Legendary'])
+def test_upgrading_then_selling_never_makes_gold(trade, rarity):
+    """Invariant: upgrade an item, sell it, and you end up with less gold than if you'd sold it as is."""
+    from items import UPGRADE_BARS, UPGRADE_MAX, generate_armor, generate_weapon
+    from player import Player
+    for seed in range(15):
+        random.seed(seed)
+        for make in (lambda: generate_weapon('Warrior', 19, rarity), lambda: generate_armor(19, rarity, 'Warrior'),
+                     lambda: forge_item('weapon', 'Steel', rarity, 'Warrior')):
+            p = Player('U', 'Warrior')
+            p.trade_profession = trade
+            item = make()
+            p.add_item(item)
+            p.equip(item)
+            p.gold = 10 ** 6
+            p.resources = {bar: 10 for bar in UPGRADE_BARS.values()}
+            sell_as_is = item.value // 2                         # app.py sells at value // 2
+            for _ in range(UPGRADE_MAX):
+                assert p.upgrade_equipped(item.item_type)[0]
+                spent = 10 ** 6 - p.gold
+                assert item.value // 2 - sell_as_is < spent, (rarity, trade, item.name, item.upgrade)
+            assert item.value > 2 * sell_as_is, 'upgraded gear is still worth more than the plain item'

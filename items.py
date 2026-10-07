@@ -29,6 +29,8 @@ UPGRADE_MAX = 5
 UPGRADE_STAT_GAIN = 0.12
 UPGRADE_BARS = {1: "Bronze Bar", 2: "Iron Bar", 3: "Steel Bar", 4: "Mithril Bar", 5: "Adamantite Bar"}
 UPGRADE_BAR_QTY = 2
+UPGRADE_VALUE_SHARE = 0.5   # each upgrade adds this share of its full gold price to the item's value;
+                            # selling (value // 2) then returns 25% of it, so upgrade-and-sell never profits
 
 
 # Tempering (Smithing 15, crafted gear only, once per item): name -> (slot, multipliers, flat changes)
@@ -80,6 +82,9 @@ class Item:
         self.effect_duration = effect_duration  # turns for temp buffs
 
     def apply_upgrade(self):
+        cost = upgrade_cost(self)   # full price, not the Blacksmith's: value doesn't depend on who paid
+        if cost:
+            self.value += int(cost[0] * UPGRADE_VALUE_SHARE)
         if self.base_stats is None:
             self.base_stats, self.base_name = dict(self.stats), self.name
         self.upgrade += 1
@@ -87,7 +92,6 @@ class Item:
         self.stats = {k: max(v + self.upgrade, int(round(v * mult))) if v > 0 else v  # penalties stay penalties
                       for k, v in self.base_stats.items()}
         self.name = f"{self.base_name} +{self.upgrade}"
-        self.value = int(self.value * 1.25)
 
     def apply_temper(self, name):
         """One-time Tempering: reshapes the item's *base* stats, so +1…+5 upgrades build on it."""
