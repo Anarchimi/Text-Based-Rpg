@@ -860,3 +860,41 @@ def test_fletching_bench_flow_through_the_web():
     client.post('/action', data={'action': 'ws_forge'})
     inv = pickle.load(open(path, 'rb'))['player'].inventory
     assert any(i.profile == 'Precision' and i.material == 'Willow' for i in inv)
+
+
+# ── Phase 6: an old save loads and every new trade screen renders ──────────────
+
+def test_pre_trade_save_loads_and_all_trade_screens_render():
+    import app as game_app, os
+    from quests import QuestLog
+    p = trader('Blacksmith', Mining=12, Smithing=12, Herblore=5, Herbalism=5)
+    p.resources = {'Guam Leaf': 2, 'Ranarr Weed': 2, 'Iron Bar': 2}
+    for attr in ('unlock_log', 'trade_specialization', 'alchemy_journal', 'trophies', 'meal', 'armed_trap'):
+        delattr(p, attr)
+    st = game_app.fresh_state()
+    st.update(player=p, quest_log=QuestLog(), screen='hub', zone=2)
+    for key in ('pending_node', 'node_return', 'workshop', 'alchemy_pick'):
+        del st[key]
+    client = game_app.app.test_client()
+    client.get('/')
+    with client.session_transaction() as s:
+        sid = s['sid']
+    pickle.dump(st, open(os.path.join(game_app.SAVE_DIR, f'{sid}.pkl'), 'wb'))
+
+    def go(action, expect):
+        resp = client.post('/action', data={'action': action}, follow_redirects=True)
+        assert resp.status_code == 200 and expect in resp.get_data(as_text=True), action
+    go('gather', 'Next · Lv')
+    go('back', 'Explore')
+    go('craft', 'Craft')
+    go('tab_Herblore', 'Alchemy bench')
+    go('alchemy', 'Alchemy Bench')
+    go('back', 'Craft')
+    go('tab_Smithing', 'Forge…')
+    idx = CRAFTING_RECIPES['Smithing'].index(_recipe('Iron'))
+    go(f'forge_{idx}', 'Quality odds')
+    go('back', 'Craft')
+    go('back', 'Explore')
+    go('inventory', 'Inventory')
+    go('back', 'Explore')
+    go('explore', 'Choose your path')
