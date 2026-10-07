@@ -1,0 +1,22 @@
+  {% set p = state.player %}
+  <form method="post" action="/action">
+    <button class="back-btn" name="action" value="back">← Back</button>
+  </form>
+  <p class="page-title">Abilities</p>
+  {% set abilities = p.get_abilities() %}
+  {% if abilities %}
+    {% for ab in abilities %}
+    <div class="card" style="border-color:var(--purple);">
+      <div style="font-size:15px;font-weight:bold;color:var(--purple);margin-bottom:4px;">{{ ab.name }}</div>
+      <div style="font-size:12px;color:var(--dim);margin-bottom:6px;">{{ ab.description }}</div>
+      <div style="font-size:12px;display:flex;gap:12px;flex-wrap:wrap;">
+        <span style="color:var(--blue);">MP: {{ ab.mp_cost }}</span>
+        <span style="color:var(--dim);">Type: {{ ab.ability_type }}</span>
+        <span style="color:var(--dim);">Power: {{ ab.value }}</span>
+        <span style="color:var(--dim);">Req Lv: {{ ab.level_req }}</span>
+      </div>
+    </div>
+    {% endfor %}
+  {% else %}
+  <div style="color:var(--dim);text-align:center;padding:30px 0;">No abilities yet. Level up!</div>
+  {% endif %}

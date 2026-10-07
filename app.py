@@ -36,7 +36,13 @@ Compress(app)
 app.jinja_env.globals['enumerate'] = enumerate
 app.jinja_env.globals['len'] = len
 
-SAVE_DIR = '/tmp/rpg_saves'
+# Saves outlive restarts: default to <repo>/instance/saves, override with RPG_SAVE_DIR
+# (point it at a persistent volume in production).
+def resolve_save_dir():
+    return os.environ.get('RPG_SAVE_DIR') or os.path.join(app.instance_path, 'saves')
+
+
+SAVE_DIR = resolve_save_dir()
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 _PICKLE_PROTOCOL = pickle.HIGHEST_PROTOCOL
@@ -99,8 +105,17 @@ def save_state(state):
         sid = str(uuid.uuid4())
         session['sid'] = sid
     os.makedirs(SAVE_DIR, exist_ok=True)
-    with open(f'{SAVE_DIR}/{sid}.pkl', 'wb') as f:
-        pickle.dump(state, f, protocol=_PICKLE_PROTOCOL)
+    path = f'{SAVE_DIR}/{sid}.pkl'
+    # Write then rename, so a crash mid-write can't leave a truncated save behind.
+    tmp = f'{path}.{os.getpid()}.tmp'
+    try:
+        with open(tmp, 'wb') as f:
+            pickle.dump(state, f, protocol=_PICKLE_PROTOCOL)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
 
 
 def fresh_state():

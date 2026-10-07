@@ -1,0 +1,34 @@
+  {% set p = state.player %}
+  {% set class_profs = professions.get(p.player_class, {}) %}
+  {% set stat_labels = {"max_hp":"Max HP","max_mp":"Max MP","base_str":"STR","base_dex":"DEX","base_int":"INT","base_vit":"VIT","base_lck":"LCK"} %}
+  <p class="page-title">Choose Your Path</p>
+  <p style="color:var(--yellow);font-size:13px;margin-bottom:6px;">★ You have reached Level 5!</p>
+  <p style="color:var(--dim);font-size:13px;margin-bottom:14px;">
+    Choose a specialization for your {{ p.player_class }}. This choice is permanent.
+  </p>
+  <form method="post" action="/action">
+    {% for prof_name, prof_data in class_profs.items() %}
+    {% if p.player_class == 'Warrior' %}
+      {% set border_col = 'var(--red)' %}
+      {% set btn_cls = 'btn-red' %}
+    {% elif p.player_class == 'Mage' %}
+      {% set border_col = 'var(--blue)' %}
+      {% set btn_cls = 'btn-cyan' %}
+    {% else %}
+      {% set border_col = 'var(--purple)' %}
+      {% set btn_cls = 'btn-purple' %}
+    {% endif %}
+    <div class="prof-card" style="border-color:{{ border_col }};">
+      <div class="prof-card-name" style="color:{{ border_col }};">{{ prof_name }}</div>
+      <div class="prof-card-passive">{{ prof_data.passive }}</div>
+      <div class="prof-card-stats">
+        Bonuses:
+        {% for stat_key, val in prof_data.stat_bonus.items() %}
+          {% if val > 0 %}+{{ val }}{% else %}{{ val }}{% endif %} {{ stat_labels.get(stat_key, stat_key) }}
+        {% endfor %}<br>
+        First skill: {{ prof_data.skills[0].name }} ({{ prof_data.skills[0].desc }})
+      </div>
+      <button class="{{ btn_cls }} btn-center" name="action" value="{{ prof_name }}">Choose {{ prof_name }}</button>
+    </div>
+    {% endfor %}
+  </form>

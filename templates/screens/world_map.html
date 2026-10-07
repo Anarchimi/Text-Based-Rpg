@@ -1,0 +1,35 @@
+  {% set p = state.player %}
+  <form method="post" action="/action">
+    <button class="back-btn" name="action" value="back">← Back</button>
+  </form>
+  <p class="page-title">World Map</p>
+
+  {% if state.messages %}
+  <div class="msgs">{% for m in state.messages %}<div class="msg msg-{{ m.kind }}">{{ m.text }}</div>{% endfor %}</div>
+  {% endif %}
+
+  <div class="card">
+  {% for zid, zdata in zones.items() %}
+  {% set req = zone_reqs[zid] %}
+  {% set unlocked = p.level >= req %}
+  {% set current = zid == state.zone %}
+  <div class="zone-item">
+    <div class="zone-nm" style="color:{% if current %}var(--cyan){% elif unlocked %}var(--text){% else %}var(--dim){% endif %}">
+      {% if current %}★{% elif unlocked %}✓{% else %}✗{% endif %}
+      {{ zdata.name }}
+      {% if current %}<span style="font-size:11px;color:var(--cyan);"> ← HERE</span>{% endif %}
+      {% if not unlocked %}<span style="font-size:11px;color:var(--dim);"> [Req Lv {{ req }}]</span>{% endif %}
+    </div>
+    <div class="zone-dsc">{{ zdata.desc }}</div>
+    {% if not current %}
+    <form method="post" action="/action">
+      <button class="btn-sm {% if unlocked %}btn-cyan{% else %}btn-dim{% endif %}"
+              name="action" value="travel_{{ zid }}"
+              {% if not unlocked %}disabled{% endif %}>
+        {% if unlocked %}Travel Here{% else %}Locked{% endif %}
+      </button>
+    </form>
+    {% endif %}
+  </div>
+  {% endfor %}
+  </div>

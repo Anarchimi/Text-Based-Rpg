@@ -1,0 +1,10 @@
+  <p class="page-title">Battle Over</p>
+  <div class="msgs">
+    {% for entry in state.combat_log %}
+    <div class="msg msg-{{ entry.kind }}">{{ entry.text }}</div>
+    {% endfor %}
+  </div>
+  <div class="spacer"></div>
+  <form method="post" action="/action">
+    <button class="btn-cyan btn-center" name="action" value="continue">Continue →</button>
+  </form>

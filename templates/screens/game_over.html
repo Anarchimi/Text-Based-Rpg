@@ -1,0 +1,16 @@
+  {% set p = state.player %}
+  <div class="spacer"></div>
+  <div class="gameover-title">GAME OVER</div>
+  <div class="gameover-sub">You have fallen in battle...<br>The Shattered Realm grows darker.</div>
+  <div class="stat-grid" style="margin-bottom:20px;">
+    <div class="stat-cell"><div class="stat-lbl">Hero</div><div class="stat-val" style="font-size:13px;">{{ p.name }}</div></div>
+    <div class="stat-cell"><div class="stat-lbl">Class</div><div class="stat-val" style="font-size:13px;">{{ p.player_class }}</div></div>
+    <div class="stat-cell"><div class="stat-lbl">Level</div><div class="stat-val">{{ p.level }}</div></div>
+    <div class="stat-cell"><div class="stat-lbl">Gold</div><div class="stat-val" style="color:var(--yellow);">{{ p.gold }}g</div></div>
+    <div class="stat-cell"><div class="stat-lbl">Kills</div><div class="stat-val">{{ p.kills }}</div></div>
+    <div class="stat-cell"><div class="stat-lbl">Quests</div><div class="stat-val">{{ p.quests_completed }}</div></div>
+  </div>
+  <div class="spacer"></div>
+  <form method="post" action="/action">
+    <button class="btn-red btn-center" name="action" value="restart">↩ Play Again</button>
+  </form>

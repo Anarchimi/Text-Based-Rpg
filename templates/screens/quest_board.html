@@ -1,0 +1,38 @@
+  {% set ql = state.quest_log %}
+  <form method="post" action="/action">
+    <button class="back-btn" name="action" value="back">← Back</button>
+  </form>
+  <p class="page-title">Quest Board</p>
+  <div style="font-size:12px;color:var(--dim);margin-bottom:10px;">
+    Active: {{ ql.active_quests()|length }}/{{ ql.max_active }}
+  </div>
+
+  {% if state.messages %}
+  <div class="msgs">{% for m in state.messages %}<div class="msg msg-{{ m.kind }}">{{ m.text }}</div>{% endfor %}</div>
+  {% endif %}
+
+  {% if ql.active_quests() %}
+  <div class="card-head">Active Quests</div>
+  {% for q in ql.active_quests() %}
+  <div class="quest-card">
+    <div class="quest-title">{{ q.title }} {% if q.is_complete() %}<span class="quest-done">[COMPLETE]</span>{% endif %}</div>
+    <div class="quest-desc">{{ q.description }}</div>
+    <div class="quest-prog">Progress: {{ q.current }}/{{ q.target_count }} · Reward: {{ q.reward_xp }} XP + {{ q.reward_gold }}g</div>
+  </div>
+  {% endfor %}
+  <hr>
+  {% endif %}
+
+  <div class="card-head">Available Quests</div>
+  {% for i, q in enumerate(state.board_quests or []) %}
+  <div class="quest-card">
+    <div class="quest-title">{{ q.title }}</div>
+    <div class="quest-desc">{{ q.description }}</div>
+    <div class="quest-prog" style="margin-bottom:6px;">Reward: {{ q.reward_xp }} XP + {{ q.reward_gold }}g</div>
+    {% if not q.active %}
+    <form method="post" action="/action">
+      <button class="btn-sm btn-yellow" name="action" value="accept_{{ i }}">Accept Quest</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endfor %}

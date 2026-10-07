@@ -1,0 +1,22 @@
+  {% set p = state.player %}
+  {% set hp_missing = p.max_hp - p.hp %}
+  {% set cost = (hp_missing // 10) * 3 + 5 %}
+  <form method="post" action="/action">
+    <button class="back-btn" name="action" value="back">← Back</button>
+  </form>
+  <p class="page-title">The Rusty Flagon Inn</p>
+  <div class="card">
+    <p style="color:var(--dim);font-size:13px;margin-bottom:10px;">"Welcome, traveler. Rest your weary bones."</p>
+    <div style="font-size:13px;margin-bottom:4px;">HP: <span style="color:var(--green)">{{ p.hp }}/{{ p.max_hp }}</span></div>
+    <div style="font-size:13px;margin-bottom:10px;">MP: <span style="color:var(--blue)">{{ p.mp }}/{{ p.max_mp }}</span></div>
+    <div style="font-size:13px;color:var(--dim);">Full rest cost: <span style="color:var(--yellow)">{{ cost }}g</span></div>
+  </div>
+
+  {% if state.messages %}
+  <div class="msgs">{% for m in state.messages %}<div class="msg msg-{{ m.kind }}">{{ m.text }}</div>{% endfor %}</div>
+  {% endif %}
+
+  <form method="post" action="/action">
+    <button class="btn-green" name="action" value="full_rest">🛏 Full Rest — {{ cost }}g (HP &amp; MP restored)</button>
+    <button name="action" value="nap">💤 Nap — Free (50% HP/MP restored)</button>
+  </form>

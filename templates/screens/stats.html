@@ -1,0 +1,52 @@
+  {% set p = state.player %}
+  <form method="post" action="/action">
+    <button class="back-btn" name="action" value="back">← Back</button>
+  </form>
+  <p class="page-title">Character Stats</p>
+  <div class="stat-grid">
+    <div class="stat-cell"><div class="stat-lbl">Level</div><div class="stat-val">{{ p.level }}</div></div>
+    <div class="stat-cell"><div class="stat-lbl">Class</div><div class="stat-val" style="font-size:13px;">{{ p.player_class }}</div></div>
+    <div class="stat-cell"><div class="stat-lbl">HP</div><div class="stat-val" style="color:var(--green);">{{ p.hp }}/{{ p.max_hp }}</div></div>
+    <div class="stat-cell"><div class="stat-lbl">MP</div><div class="stat-val" style="color:var(--blue);">{{ p.mp }}/{{ p.max_mp }}</div></div>
+    <div class="stat-cell"><div class="stat-lbl">ATK</div><div class="stat-val">{{ p.attack|int }}</div></div>
+    <div class="stat-cell"><div class="stat-lbl">DEF</div><div class="stat-val">{{ p.defense|int }}</div></div>
+    <div class="stat-cell"><div class="stat-lbl">STR</div><div class="stat-val">{{ p.str|int }}</div></div>
+    <div class="stat-cell"><div class="stat-lbl">DEX</div><div class="stat-val">{{ p.dex|int }}</div></div>
+    <div class="stat-cell"><div class="stat-lbl">INT</div><div class="stat-val">{{ p.int|int }}</div></div>
+    <div class="stat-cell"><div class="stat-lbl">LCK</div><div class="stat-val">{{ p.lck|int }}</div></div>
+    <div class="stat-cell"><div class="stat-lbl">Gold</div><div class="stat-val" style="color:var(--yellow);">{{ p.gold }}g</div></div>
+    <div class="stat-cell"><div class="stat-lbl">SP</div><div class="stat-val" style="color:var(--yellow);">{{ p.skill_points }}</div></div>
+    <div class="stat-cell"><div class="stat-lbl">Kills</div><div class="stat-val">{{ p.kills }}</div></div>
+    <div class="stat-cell"><div class="stat-lbl">Quests</div><div class="stat-val">{{ p.quests_completed }}</div></div>
+  </div>
+  {% if p.profession %}<div style="font-size:13px;color:var(--cyan);margin-bottom:8px;">Profession: {{ p.profession }}</div>{% endif %}
+  {% if p.trade_profession %}<div style="font-size:13px;color:var(--yellow);margin-bottom:8px;">Trade: {{ p.trade_profession }}</div>{% endif %}
+  {% set weap = p.equipment.get('weapon') %}
+  {% set arm  = p.equipment.get('armor') %}
+  <div class="card">
+    <div style="font-size:12px;color:var(--dim);margin-bottom:4px;">Weapon</div>
+    <div class="r-{{ weap.rarity if weap else 'Common' }}">{{ weap.name if weap else '—' }}</div>
+    <hr>
+    <div style="font-size:12px;color:var(--dim);margin-bottom:4px;margin-top:8px;">Armor</div>
+    <div class="r-{{ arm.rarity if arm else 'Common' }}">{{ arm.name if arm else '—' }}</div>
+  </div>
+  {% if p.gathering_skills %}
+  <div class="card-head" style="margin-top:8px;">Gathering Skills</div>
+  <div class="stat-grid">
+    {% for sk_name, sk_data in p.gathering_skills.items() %}
+    <div class="stat-cell">
+      <div class="stat-lbl">{{ sk_name[:6] }}</div>
+      <div class="stat-val" style="font-size:15px;color:var(--cyan);">Lv {{ sk_data.level }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="card-head">Crafting Skills</div>
+  <div class="stat-grid">
+    {% for sk_name, sk_data in p.crafting_skills.items() %}
+    <div class="stat-cell">
+      <div class="stat-lbl">{{ sk_name[:6] }}</div>
+      <div class="stat-val" style="font-size:15px;color:var(--yellow);">Lv {{ sk_data.level }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}

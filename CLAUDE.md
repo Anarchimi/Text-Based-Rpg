@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Chronicles of the Shattered Realm** — a text-based RPG played in the browser (mobile-first).
 
-- **Web** (`app.py`): Flask server, state persisted as pickled dicts in `/tmp/rpg_saves/<uuid>.pkl` across HTTP requests.
+- **Web** (`app.py`): Flask server, state persisted as pickled dicts in `<SAVE_DIR>/<uuid>.pkl` across HTTP requests. `SAVE_DIR` defaults to `instance/saves/` (gitignored) and can be overridden with the `RPG_SAVE_DIR` env var — point it at a persistent volume in production. Saves are written to a temp file and renamed into place, so a crash mid-write can't corrupt one.
 - Game logic lives in `player.py`, `enemies.py`, `items.py`, `quests.py`, `abilities.py`, `world.py`, `crafting.py`. Combat is a step-wise state machine (`do_combat_turn` in `app.py`).
 
 The old terminal (CLI) version was removed; there is only one interface.
@@ -35,7 +35,7 @@ Tests live in `tests/` (pytest). `test_combat_effects.py` asserts that every buf
 
 The web app is a single-page application driven by a `state` dict with a `screen` field. Every POST to `/action` reads state from disk, transitions `state['screen']` based on `action=` form data, saves state, and redirects to `GET /` which re-renders `templates/game.html`.
 
-The single Jinja2 template (`templates/game.html`) uses `{% if state.screen == '...' %}` blocks to render every screen (title, hub, combat, shop, inn, etc.). There is no JavaScript routing.
+`templates/game.html` is a thin shell (head, body, sound script) that includes `templates/screens/<state.screen>.html` — one file per screen (title, hub, combat, shop, inn, etc.). The client-side sound/haptics script lives in `templates/partials/scripts.html`. There is no JavaScript routing.
 
 **Screen flow:**
 ```
@@ -97,7 +97,7 @@ Five zones (ids 1–5) with `ZONE_LEVEL_REQ = {1:1, 2:5, 3:10, 4:15, 5:18}`. Zon
 
 ## Key Conventions
 
-- **Adding a new screen** in the web app requires: a new `elif screen == 'new_screen':` block in the `/action` route, a corresponding `{% elif state.screen == 'new_screen' %}` block in `game.html`, and any new state keys initialized in `fresh_state()`.
+- **Adding a new screen** in the web app requires: a new `elif screen == 'new_screen':` block in the `/action` route, a `templates/screens/new_screen.html` file (`test_every_screen_has_a_template` fails without it), and any new state keys initialized in `fresh_state()`.
 - **Profession passives** are applied inline via `if player.profession == 'X':` guards in `do_combat_turn` (`app.py`) and the `Player` stat properties. Adding a new profession requires updating those guards, `PROFESSIONS` in `player.py`, the template, and a test in `tests/test_combat_effects.py`.
 - **Session state** is pickled Python objects. Any new attribute added to `Player` must be backward-compatible with existing pickle files or `fresh_state()` must be called on load failure (already handled by `get_state()` returning `None` on exception).
 - The `SECRET_KEY` for Flask sessions should be set via the `SECRET_KEY` environment variable in production; without it a random per-process key is used, so sessions reset on every restart. The session `sid` is validated as a canonical UUID before it is used as a save filename.

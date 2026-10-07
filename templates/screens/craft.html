@@ -1,0 +1,78 @@
+  {% set p = state.player %}
+  {% set cur_skill = state.craft_skill %}
+  <form method="post" action="/action">
+    <button class="back-btn" name="action" value="back">← Back</button>
+  </form>
+  <p class="page-title">Craft</p>
+
+  {% if p.resources %}
+  <div class="res-summary">
+    <b style="color:var(--cyan);">Resources:</b> {% for rname, rqty in p.resources.items() %}<span>{{ rname }} ×{{ rqty }}</span>{% if not loop.last %} · {% endif %}{% endfor %}
+  </div>
+  {% else %}
+  <div class="res-summary" style="color:var(--dim);">No resources. Go gather first!</div>
+  {% endif %}
+
+  {% if state.messages %}
+  <div class="msgs">{% for m in state.messages %}<div class="msg msg-{{ m.kind }}">{{ m.text }}</div>{% endfor %}</div>
+  {% endif %}
+
+  {# Tab bar #}
+  <form method="post" action="/action" style="margin-bottom:0;">
+    <div class="tab-row">
+      {% for sk_name in crafting_skills_list %}
+      {% set sk_data = p.crafting_skills[sk_name] %}
+      <button type="submit" class="tab-btn {% if sk_name == cur_skill %}active{% endif %}"
+              name="action" value="tab_{{ sk_name }}">
+        {{ skill_icons.get(sk_name, '') }} {{ sk_name }} Lv{{ sk_data.level }}
+      </button>
+      {% endfor %}
+    </div>
+  </form>
+
+  {# Recipes for current skill #}
+  {% set recipes = crafting_recipes.get(cur_skill, []) %}
+  {% set cur_sk_data = p.crafting_skills.get(cur_skill, {"level": 1}) %}
+  {% set cur_sk_lv = cur_sk_data.level %}
+
+  {% if recipes %}
+  <form method="post" action="/action">
+    {% for i, recipe in enumerate(recipes) %}
+    {% set meets_req = cur_sk_lv >= recipe.req %}
+    {% set ns = namespace(has_all=true) %}
+    {% for res_name, qty in recipe.inputs.items() %}
+      {% if p.resources.get(res_name, 0) < qty %}{% set ns.has_all = false %}{% endif %}
+    {% endfor %}
+    <div class="recipe-card {% if not meets_req %}locked{% endif %}">
+      <div class="recipe-name">{{ recipe.name }}</div>
+      <div class="recipe-meta">
+        Req Lv {{ recipe.req }} · +{{ recipe.xp }} XP ·
+        {% if recipe.output_type == 'resource' %}→ {{ recipe.output_name }}
+        {% elif recipe.output_type == 'consumable' %}→ {{ recipe.output_name }}
+        {% elif recipe.output_type == 'weapon' %}→ Weapon (Lv {{ recipe.level_param }})
+        {% elif recipe.output_type == 'armor' %}→ Armor (Lv {{ recipe.level_param }})
+        {% endif %}
+      </div>
+      <div class="recipe-inputs">
+        {% for res_name, qty in recipe.inputs.items() %}
+        {% set have = p.resources.get(res_name, 0) %}
+        <span class="{% if have >= qty %}have-yes{% else %}have-no{% endif %}">
+          {% if have >= qty %}✓{% else %}✗{% endif %} {{ qty }}× {{ res_name }} (have {{ have }})
+        </span>{% if not loop.last %} &nbsp;{% endif %}
+        {% endfor %}
+      </div>
+      {% if meets_req %}
+      <button class="{% if ns.has_all %}btn-green{% else %}btn-dim{% endif %} btn-sm"
+              name="action" value="craft_{{ cur_skill }}_{{ i }}"
+              {% if not ns.has_all %}disabled{% endif %}>
+        {% if ns.has_all %}Craft{% else %}Missing resources{% endif %}
+      </button>
+      {% else %}
+      <div style="font-size:12px;color:var(--dim);">🔒 Requires {{ cur_skill }} Lv {{ recipe.req }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </form>
+  {% else %}
+  <div style="color:var(--dim);text-align:center;padding:20px 0;">No recipes available.</div>
+  {% endif %}

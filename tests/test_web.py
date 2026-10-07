@@ -1,3 +1,4 @@
+import os
 import random
 import re
 
@@ -53,3 +54,43 @@ def test_forged_sid_cookie_gets_replaced():
     client.post('/action', data={'action': 'new_game'})
     with client.session_transaction() as s:
         assert game_app._valid_sid(s['sid'])
+
+
+def test_every_screen_has_a_template():
+    """game.html includes screens/<state.screen>.html; a missing file would 500."""
+    import os
+    src = open(game_app.__file__).read()
+    screens = set(re.findall(r"state\['screen'\] = '(\w+)'", src)) | {game_app.fresh_state()['screen']}
+    tpl_dir = os.path.join(game_app.app.root_path, 'templates', 'screens')
+    missing = {s for s in screens if not os.path.exists(os.path.join(tpl_dir, f'{s}.html'))}
+    assert not missing, f'screens without a template: {missing}'
+
+
+def test_save_dir_defaults_to_instance_folder_and_is_overridable(monkeypatch):
+    monkeypatch.delenv('RPG_SAVE_DIR', raising=False)
+    default = game_app.resolve_save_dir()
+    assert default == os.path.join(game_app.app.instance_path, 'saves')
+    assert not default.startswith('/tmp')
+    monkeypatch.setenv('RPG_SAVE_DIR', '/data/saves')
+    assert game_app.resolve_save_dir() == '/data/saves'
+
+
+def test_failed_save_keeps_previous_save_intact(monkeypatch):
+    client = game_app.app.test_client()
+    client.post('/action', data={'action': 'new_game'})
+    with client.session_transaction() as s:
+        sid = s['sid']
+    path = os.path.join(game_app.SAVE_DIR, f'{sid}.pkl')
+    good = open(path, 'rb').read()
+
+    def boom(*a, **k):
+        raise OSError('disk full')
+    monkeypatch.setattr(game_app.pickle, 'dump', boom)
+    with pytest.raises(OSError):
+        with game_app.app.test_request_context('/'):
+            from flask import session
+            session['sid'] = sid
+            game_app.save_state(game_app.fresh_state())
+
+    assert open(path, 'rb').read() == good
+    assert os.listdir(game_app.SAVE_DIR) == [f'{sid}.pkl']  # no leftover .tmp file

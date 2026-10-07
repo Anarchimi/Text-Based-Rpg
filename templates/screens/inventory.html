@@ -1,0 +1,74 @@
+  {% set p = state.player %}
+  <form method="post" action="/action">
+    <button class="back-btn" name="action" value="back">← Back</button>
+  </form>
+  <p class="page-title">Inventory</p>
+  <div style="font-size:13px;color:var(--yellow);margin-bottom:10px;">Gold: {{ p.gold }}g</div>
+
+  {% if state.messages %}
+  <div class="msgs">{% for m in state.messages %}<div class="msg msg-{{ m.kind }}">{{ m.text }}</div>{% endfor %}</div>
+  {% endif %}
+
+  <div class="card-head">Equipped</div>
+  <div class="card">
+    {% set weap = p.equipment.get('weapon') %}
+    {% set arm  = p.equipment.get('armor') %}
+    <div style="font-size:13px;margin-bottom:4px;">Weapon: <span class="{% if weap %}r-{{ weap.rarity }}{% else %}{% endif %}">{{ weap.name if weap else '—' }}</span></div>
+    <div style="font-size:13px;">Armor:  <span class="{% if arm %}r-{{ arm.rarity }}{% else %}{% endif %}">{{ arm.name if arm else '—' }}</span></div>
+  </div>
+
+  {% set equippable  = p.inventory | selectattr('item_type', 'in', ['weapon', 'armor']) | list %}
+  {% set consumables = p.inventory | selectattr('item_type', 'eq', 'consumable') | list %}
+
+  {% if equippable %}
+  <div class="card-head">Gear</div>
+  <div class="card">
+    {% for i, item in enumerate(equippable) %}
+    <div class="item-row">
+      <div class="item-info">
+        <div class="item-name r-{{ item.rarity }}">[{{ item.rarity }}] {{ item.name }}</div>
+        <div class="item-meta">
+          {{ item.item_type }}
+          {% if item.stats %}· {% for k,v in item.stats.items() %}+{{ v }} {{ k.upper() }} {% endfor %}{% endif %}
+          · Worth {{ item.value }}g
+        </div>
+      </div>
+      <div class="item-actions">
+        <form method="post" action="/action">
+          <button class="btn-sm btn-green" name="action" value="equip_{{ i }}">Equip</button>
+        </form>
+        <form method="post" action="/action">
+          <button class="btn-sm btn-dim" name="action" value="sell_{{ loop.index0 + (consumables|length) }}">Sell</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if consumables %}
+  <div class="card-head">Consumables</div>
+  <div class="card">
+    {% for i, item in enumerate(consumables) %}
+    {% set inv_idx = p.inventory.index(item) %}
+    <div class="item-row">
+      <div class="item-info">
+        <div class="item-name">{{ item.name }}</div>
+        <div class="item-meta">{{ item.effect | replace('_', ' ') }} · Worth {{ item.value }}g</div>
+      </div>
+      <div class="item-actions">
+        <form method="post" action="/action">
+          <button class="btn-sm btn-green" name="action" value="use_{{ i }}">Use</button>
+        </form>
+        <form method="post" action="/action">
+          <button class="btn-sm btn-dim" name="action" value="sell_{{ inv_idx }}">Sell</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if not p.inventory %}
+  <div style="color:var(--dim);text-align:center;padding:20px 0;">Inventory is empty.</div>
+  {% endif %}
