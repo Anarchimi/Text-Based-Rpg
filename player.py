@@ -195,6 +195,7 @@ class Player:
         self.alchemy_journal    = {"recipes": {}, "hints": {}}  # recipes: name -> (ingr, ingr); hints: name -> text
         self.trophies           = {}     # Fisher catch log: trophy fish name -> count
         self.meal               = None   # active meal: {name, stats, resist, fights} (trades.MEALS)
+        self.armed_trap         = False  # Fletcher Hunting Trap set for the next (non-boss) fight
         self.trade_specialization = None # reserved for trade specializations (not chosen yet)
 
         # Trade / gathering professions
@@ -232,7 +233,8 @@ class Player:
 
     def combat_consumables(self):
         """Consumables usable mid-fight (meals are eaten before a fight, not during it)."""
-        return [i for i in self.inventory if i.item_type == "consumable" and i.category != "meal"]
+        return [i for i in self.inventory if i.item_type == "consumable" and i.category != "meal"
+                and i.effect not in ("arm_trap", "camp_kit")]
 
     def _temp(self, stat):
         return sum(b["amount"] for b in self.temp_buffs if b["stat"] in (stat, "all"))
@@ -505,6 +507,15 @@ class Player:
             self.dot_dmg = 0
             self.debuffs.clear()
             msg = "Cured all status effects!"
+        elif eff == "arm_trap":
+            if self.armed_trap:
+                return False, "A trap is already set."
+            self.armed_trap = True
+            msg = "Trap set. Your next fight (not a boss) starts with the enemy snared."
+        elif eff == "camp_kit":
+            return False, "Keep it in your pack: it's used automatically when you make camp on the trail."
+        elif eff == "smoke_escape":
+            return False, "Smoke Arrows are for escaping a fight — use one in combat."
         elif eff == "meal":
             from trades import eat_meal
             msg = eat_meal(self, item)
@@ -585,6 +596,7 @@ class Player:
         d.setdefault("alchemy_journal", {"recipes": {}, "hints": {}})
         d.setdefault("trophies", {})
         d.setdefault("meal", None)
+        d.setdefault("armed_trap", False)
         d.setdefault("trade_specialization", None)
         if d.get("trade_profession") == "Ranger":  # renamed to avoid clashing with the Rogue's Ranger
             d["trade_profession"] = "Fletcher"

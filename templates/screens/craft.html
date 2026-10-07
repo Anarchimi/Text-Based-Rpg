@@ -58,6 +58,8 @@
         {% elif recipe.output_type == 'consumable' %}→ {{ recipe.output_name }}
         {% elif recipe.output_type == 'meal' %}→ 🍲 {{ trades.meal_text(recipe.output_name) }}
         {% elif recipe.output_type == 'forge' %}→ {{ recipe.metal }} weapon or armor at the forge
+        {% elif recipe.output_type == 'fletch' %}→ {{ recipe.wood }} {{ 'staff' if p.player_class == 'Mage' else recipe.kind | lower }} ({{ trades.wood_trait(p, recipe.wood) }}) at the bench
+        {% elif recipe.output_type == 'utility' %}→ {{ recipe.output_name }}: {{ trades.UTILITY_TEXT[recipe.utility] }}
         {% elif recipe.output_type == 'weapon' %}→ Weapon (Lv {{ recipe.level_param }})
         {% elif recipe.output_type == 'armor' %}→ Armor (Lv {{ recipe.level_param }})
         {% endif %}
@@ -70,8 +72,8 @@
         </span>{% if not loop.last %} &nbsp;{% endif %}
         {% endfor %}
       </div>
-      {% if meets_req and recipe.output_type == 'forge' %}
-      <button class="btn-yellow btn-sm" name="action" value="forge_{{ i }}">⚒ Forge…</button>
+      {% if meets_req and recipe.output_type in ('forge', 'fletch') %}
+      <button class="btn-yellow btn-sm" name="action" value="forge_{{ i }}">{{ '⚒ Forge…' if recipe.output_type == 'forge' else '🏹 Fletch…' }}</button>
       {% elif meets_req %}
       <button class="{% if ns.has_all %}btn-green{% else %}btn-dim{% endif %} btn-sm"
               name="action" value="craft_{{ cur_skill }}_{{ i }}"

@@ -441,7 +441,14 @@ def do_combat_turn(state, action, ability_idx=None, item_idx=None):
                 return 'continue'
     elif action == 'item' and item_idx is not None:
         consumables = player.combat_consumables()
-        if 0 <= item_idx < len(consumables):
+        if 0 <= item_idx < len(consumables) and consumables[item_idx].effect == 'smoke_escape':
+            if enemy.is_final:
+                clog('danger', 'There is no escaping this fight.')
+            else:
+                player.inventory.remove(consumables[item_idx])
+                clog('warning', 'You loose a Smoke Arrow and slip away in the haze!')
+                return 'fled'
+        elif 0 <= item_idx < len(consumables):
             ok, text = player.use_consumable(consumables[item_idx])
             clog('heal' if ok else 'danger', text)
     elif action == 'flee':

@@ -268,15 +268,11 @@ def test_blacksmith_masterwork_improves_forging_odds():
     assert trades.forge_shift(smith, recipe) == trades.forge_shift(other, recipe) + trades.MASTERWORK_SHIFT
 
 
-@pytest.mark.parametrize('trade,skill,recipe,inputs', [
-    ('Fletcher', 'Fletching', 'Oak Shortbow', {'Oak Logs': 2}),
-])
-def test_masterwork_crafts_rare_gear(trade, skill, recipe, inputs):
-    for who, expected in ((trade, 'Rare'), ('Fisher', 'Uncommon')):
-        p = trader(who)
-        p.resources = dict(inputs)
-        ok, _, item = craft_item(p, skill, _recipe_idx(skill, recipe))
-        assert ok and item.rarity == expected, who
+def test_fletcher_masterwork_improves_fletching_odds():
+    import trades
+    recipe = next(r for r in CRAFTING_RECIPES['Fletching'] if r['name'] == 'Oak Shortbow')
+    assert (trades.craft_shift(trader('Fletcher'), 'Fletching', recipe)
+            == trades.craft_shift(trader('Fisher'), 'Fletching', recipe) + trades.MASTERWORK_SHIFT)
 
 
 @pytest.mark.parametrize('trade,skill,recipe,inputs', [

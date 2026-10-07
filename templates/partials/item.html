@@ -5,7 +5,7 @@
 
 {% macro item_stats(item) %}
   <div class="item-meta">{% for k, v in item.stats.items() %}<span class="stat-chip">{{ stat_text(k, v) }}</span>{% endfor %}</div>
-  {% if item.crafted %}<div class="item-meta crafted-tag">⚒ Crafted · {{ item.material }} {{ item.kind | lower }}{% if item.temper %} · Tempered: {{ item.temper }}{% endif %}</div>{% endif %}
+  {% if item.crafted %}<div class="item-meta crafted-tag">⚒ Crafted · {{ item.material }} {{ item.kind | lower }}{% if item.profile %} · {{ item.profile }} profile{% endif %}{% if item.temper %} · Tempered: {{ item.temper }}{% endif %}</div>{% endif %}
   {% if item.legendary %}<div class="item-meta legendary-fx">✦ {{ item.legendary }} — {{ LEGENDARY_EFFECTS[item.legendary][1] }}</div>{% endif %}
 {% endmacro %}
 

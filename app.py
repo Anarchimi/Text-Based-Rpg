@@ -15,7 +15,7 @@ from quests import BOUNTY_LEADER_CHANCE
 from combat import ability_cost, defend_reduction, do_combat_turn, end_combat, hit_player  # noqa: F401  (hit_player re-exported for tests)
 from quests import QuestLog, generate_quest
 from items import (generate_shop_stock, generate_weapon, generate_armor, generate_consumable, upgrade_cost,
-                   STAT_LABELS, LEGENDARY_EFFECTS, METAL_TRAIT_TEXT, SMITHED_WEAPON)
+                   STAT_LABELS, LEGENDARY_EFFECTS, METAL_TRAIT_TEXT, SMITHED_WEAPON, PROFILES, WOODS)
 from world import (travel_to_zone, ZONES, ZONE_LEVEL_REQ, LAIR_STEPS, MAX_DEPTH, DEPTH_GOLD, DEPTH_LUCK,
                    get_zone, generate_explore_options, describe_option, resolve_option, depth_effects)
 import trades
@@ -50,6 +50,8 @@ app.jinja_env.globals['trade_milestones'] = TRADE_MILESTONES
 app.jinja_env.globals['trades'] = trades
 app.jinja_env.globals['metal_traits'] = METAL_TRAIT_TEXT
 app.jinja_env.globals['smithed_weapon'] = SMITHED_WEAPON
+app.jinja_env.globals['profiles'] = PROFILES
+app.jinja_env.globals['woods'] = WOODS
 app.jinja_env.globals['profession_abilities'] = PROFESSION_ABILITIES
 app.jinja_env.globals['ability_cost'] = ability_cost
 app.jinja_env.globals['defend_reduction'] = defend_reduction
@@ -230,6 +232,8 @@ def special_node_for(player, zone, skill):
         return trades.make_patch_node(player, zone)
     if skill == 'Fishing' and random.random() < trades.BITE_CHANCE:
         return trades.make_bite_node(player, zone)
+    if skill == 'Woodcutting' and random.random() < trades.TREE_CHANCE:
+        return trades.make_tree_node(player, zone)
     return None
 
 
@@ -250,6 +254,9 @@ def start_combat(state, enemy, intro, kind='info', return_to='hub'):
     state['combat_enemy'] = enemy
     state['combat_turn'] = 1
     state['combat_log'] = [{'kind': kind, 'text': intro}]
+    snare = trades.spring_trap(state['player'], enemy)
+    if snare:
+        state['combat_log'].append({'kind': 'player', 'text': snare})
     state['return_to'] = return_to
     state['player'].first_strike_used = False
     state['screen'] = 'combat'
@@ -340,6 +347,10 @@ def apply_explore_events(state, player, events):
             say('loot', ev_msg, f'[{val.rarity}] {val.name}')
         elif ev_type == 'resource':
             add_msg(state, 'success', ev_msg)
+        elif ev_type == 'set_depth':
+            state['depth'] = val
+            state['explore_options'] = None
+            add_msg(state, 'dim', f'Your camp kept you on the trail — depth {val}.')
         elif ev_type == 'reset_depth':
             reset_depth(state)
             add_msg(state, 'dim', 'Rested — the trail depth resets.')
@@ -657,14 +668,17 @@ def action():
             clear_msgs(state)
         elif act in ('ws_slot_weapon', 'ws_slot_armor'):
             ws['slot'] = act.rsplit('_', 1)[1]
+        elif act.startswith('ws_profile_') and act[len('ws_profile_'):] in PROFILES:
+            ws['profile'] = act[len('ws_profile_'):]
         elif act.startswith('ws_add_'):
             add = act[len('ws_add_'):]
-            ws['additive'] = add if add in trades.usable_additives(player) else None
+            ws['additive'] = add if add in trades.usable_additives(player, ws['skill']) else None
         elif act == 'ws_forge':
             clear_msgs(state)
-            ok, text, _ = trades.forge(player, recipe, ws.get('slot', 'weapon'), ws.get('additive'))
+            choice = ws.get('slot', 'weapon') if ws['skill'] == 'Smithing' else ws.get('profile', 'Power')
+            ok, text, _ = trades.bench_craft(player, ws['skill'], recipe, choice, ws.get('additive'))
             add_msg(state, 'success' if ok else 'danger', text)
-            if ws.get('additive') not in trades.usable_additives(player):
+            if ws.get('additive') not in trades.usable_additives(player, ws['skill']):
                 ws['additive'] = None
 
     elif screen == 'alchemy':
@@ -891,9 +905,10 @@ def action():
             except ValueError:
                 idx = -1
             recipes = CRAFTING_RECIPES.get(state['craft_skill'], [])
-            if 0 <= idx < len(recipes) and recipes[idx]['output_type'] == 'forge':
+            if 0 <= idx < len(recipes) and recipes[idx]['output_type'] in ('forge', 'fletch'):
                 clear_msgs(state)
-                state['workshop'] = {'skill': state['craft_skill'], 'recipe': idx, 'slot': 'weapon', 'additive': None}
+                state['workshop'] = {'skill': state['craft_skill'], 'recipe': idx, 'slot': 'weapon',
+                                     'profile': 'Power', 'additive': None}
                 state['screen'] = 'workshop'
         elif act.startswith('craft_'):
             parts = act.split('_', 2)

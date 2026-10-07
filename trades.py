@@ -135,6 +135,10 @@ def resolve_trade_event(event_id, player, zone, depth):
         return [("resource", 0, f"You harvest the find: {', '.join(got)} (+{20 + 5 * zone} {skill} XP)")]
     if event_id == "remains":
         return _resolve_remains(player, zone)
+    if event_id == "tracks":
+        player.armed_trap = True
+        player.gain_skill_xp("gathering", "Woodcutting", 15)
+        return [("resource", 0, "You set an ambush along the tracks. Your next fight starts with the enemy snared.")]
     if event_id == "salvage":
         msg = f"You pick through the wreckage: {_grant(player, ZONE_BAR[zone], random.randint(1, 3))}"
         events = [("resource", 0, msg)]
@@ -283,15 +287,20 @@ ADDITIVES = {  # name: (quality shift, Smithing level needed)
 MASTERWORK_SHIFT = 0.10
 
 
-def forge_shift(player, recipe, additive=None):
+def craft_shift(player, skill, recipe, additive=None):
+    """Quality-roll shift at a workshop (Smithing forge or Fletching bench)."""
     from crafting import MASTERWORK_SKILLS
-    margin = max(0, min(MARGIN_CAP, skill_level(player, "Smithing") - recipe["req"]))
+    margin = max(0, min(MARGIN_CAP, skill_level(player, skill) - recipe["req"]))
     shift = margin * MARGIN_SHIFT
     if additive:
-        shift += ADDITIVES[additive][0]
-    if MASTERWORK_SKILLS.get(player.trade_profession) == "Smithing":
+        shift += WORKSHOP_ADDITIVES[skill][additive][0]
+    if MASTERWORK_SKILLS.get(player.trade_profession) == skill:
         shift += MASTERWORK_SHIFT
     return shift
+
+
+def forge_shift(player, recipe, additive=None):
+    return craft_shift(player, "Smithing", recipe, additive)
 
 
 def quality_odds(shift, legendary_possible=False):
@@ -315,39 +324,23 @@ def roll_quality(shift, legendary_possible=False):
     return "Legendary" if legendary_possible else "Epic"
 
 
-def usable_additives(player):
-    return [a for a, (_, lv) in ADDITIVES.items()
-            if skill_level(player, "Smithing") >= lv and player.resources.get(a, 0) > 0]
+def usable_additives(player, skill="Smithing"):
+    return [a for a, (_, lv) in WORKSHOP_ADDITIVES[skill].items()
+            if skill_level(player, skill) >= lv and player.resources.get(a, 0) > 0]
+
+
+def can_craft_at_bench(player, skill, recipe):
+    return (skill_level(player, skill) >= recipe["req"]
+            and all(player.resources.get(r, 0) >= q for r, q in recipe["inputs"].items()))
 
 
 def can_forge(player, recipe):
-    return (skill_level(player, "Smithing") >= recipe["req"]
-            and all(player.resources.get(r, 0) >= q for r, q in recipe["inputs"].items()))
+    return can_craft_at_bench(player, "Smithing", recipe)
 
 
 def forge(player, recipe, slot, additive=None):
     """Spend the recipe's bars (+ additive) and forge. Returns (ok, message, item)."""
-    from crafting import TRADE_PROFESSIONS
-    from items import forge_item
-    if skill_level(player, "Smithing") < recipe["req"]:
-        return False, f"Requires Smithing {recipe['req']}.", None
-    if additive and additive not in usable_additives(player):
-        return False, f"You can't use {additive} yet.", None
-    for res, qty in recipe["inputs"].items():
-        if player.resources.get(res, 0) < qty:
-            return False, f"Need {qty}× {res}.", None
-    for res, qty in recipe["inputs"].items():
-        player.remove_resource(res, qty)
-    if additive:
-        player.remove_resource(additive, 1)
-    shift = forge_shift(player, recipe, additive)
-    rarity = roll_quality(shift, legendary_possible=additive == STARMETAL)
-    item = forge_item(slot, recipe["metal"], rarity, player.player_class)
-    player.add_item(item)
-    bonus = "Smithing" in TRADE_PROFESSIONS.get(player.trade_profession, {}).get("bonus_skills", [])
-    xp = int(recipe["xp"] * (1.5 if bonus else 1))
-    player.gain_skill_xp("crafting", "Smithing", xp)
-    return True, f"You forge a [{rarity}] {item.name}! (+{xp} Smithing XP)", item
+    return bench_craft(player, "Smithing", recipe, slot, additive)
 
 
 # ── Blacksmith: tempering ──────────────────────────────────────────────────────
@@ -702,3 +695,139 @@ def eat_meal(player, item):
     player.meal = {"name": item.meal, "stats": dict(m["stats"]), "resist": m.get("resist", 0), "fights": fights}
     return f"You eat the {item.name}: {meal_text(item.meal).rsplit(' for ', 1)[0]} for {fights} fights." + (
         f" (Replaces {replaced}.)" if replaced else "")
+
+
+# ── Fletcher: wood, trees, the fletching bench, field tools ────────────────────
+HEARTWOOD, ANCIENT_HEARTWOOD = "Heartwood", "Ancient Heartwood"
+TREE_CHANCE = 0.15
+BRANCH_CHANCE = 0.20
+WORKSHOP_ADDITIVES = {
+    "Smithing":  ADDITIVES,
+    "Fletching": {HEARTWOOD: (0.15, 10), ANCIENT_HEARTWOOD: (0.30, 20)},
+}
+LEGENDARY_ADDITIVE = {"Smithing": STARMETAL, "Fletching": ANCIENT_HEARTWOOD}
+TRAP_DAMAGE_PCT = 0.15
+CAMP_KIT_HEAL = 60            # % HP/MP when making camp with a kit (normal camp: world.REST_HEAL)
+UTILITY_TEXT = {
+    "arm_trap":     "use outside combat to set it: your next fight starts with the enemy snared (−15% HP, chilled). Not bosses.",
+    "camp_kit":     "carried, not used: your next trail camp heals 60% and keeps half your trail depth.",
+    "smoke_escape": "use in combat: a guaranteed escape (not from the final battle).",
+}
+
+TRADE_MILESTONES.setdefault("Woodcutting", {}).update({
+    5:  ("Grain Sense", "See each wood's trait at the fletching bench; Fletchers can follow animal tracks on the trail."),
+    10: ("Heartwood", "Special trees can appear while chopping: fell them fast or cut out their heartwood."),
+    15: ("Rare Groves", "Special trees can be the rarer wood of the next zone."),
+    20: ("Ancient Trees", "Heartwood cuts can yield Ancient Heartwood, a legendary fletching material."),
+})
+TRADE_MILESTONES["Fletching"].update({
+    10: ("Heartwood Inlay", "Inlay Heartwood into a weapon to raise its quality odds."),
+    15: ("Snare Mastery", "Your Hunting Traps also make the snared enemy bleed."),
+    20: ("Ancient Bowyer", "Craft with Ancient Heartwood: the only way to make Legendary fletched weapons."),
+})
+
+
+def wood_trait(player, wood):
+    from items import WOODS
+    return WOODS[wood][2] if has_milestone(player, "Woodcutting", 5) else "?"
+
+
+def _zone_logs(player, zone):
+    from crafting import ZONE_RESOURCES
+    lv = skill_level(player, "Woodcutting")
+    logs = [(req, -i, n) for i, (n, _, req) in enumerate(ZONE_RESOURCES.get(zone, {}).get("Woodcutting", [])) if lv >= req]
+    return max(logs)[2] if logs else None
+
+
+def make_tree_node(player, zone):
+    logs = _zone_logs(player, zone)
+    if not logs or not has_milestone(player, "Woodcutting", 10):
+        return None
+    if has_milestone(player, "Woodcutting", 15) and zone < 5 and random.random() < 0.4:
+        logs = _zone_res(zone + 1, "Woodcutting")[0]
+    ancient = has_milestone(player, "Woodcutting", 20)
+    return {"type": "tree", "zone": zone, "logs": logs, "ancient": ancient,
+            "title": f"A towering {logs.replace(' Logs', '').lower()} tree",
+            "text": "Old and straight-grained. Its heart would make fine bow-wood.",
+            "options": [{"key": "fell", "label": "🪓 Fell it quickly", "detail": f"4–5 {logs} · no risk"},
+                        {"key": "heart", "label": "🌳 Cut out the heartwood",
+                         "detail": f"1–2 {logs} + Heartwood" + (" (rare Ancient Heartwood)" if ancient else "")
+                                   + f" · {int(BRANCH_CHANCE * 100)}% chance a branch falls (−10% HP)"},
+                        {"key": "leave", "label": "↩ Leave it", "detail": ""}]}
+
+
+def _resolve_tree(node, key, player):
+    found, events = [], []
+
+    def add(name, qty):
+        player.add_resource(name, qty)
+        found.append(f"{qty}× {name}")
+    if key == "fell":
+        add(node["logs"], random.randint(4, 5))
+        xp = 30 + 5 * node["zone"]
+    elif key == "heart":
+        if random.random() < BRANCH_CHANCE:
+            events.append(("trap_pct", 10, "A dead branch comes crashing down!"))
+        add(node["logs"], random.randint(1, 2))
+        add(HEARTWOOD, 1)
+        if node.get("ancient") and random.random() < 0.10:
+            add(ANCIENT_HEARTWOOD, 1)
+        xp = 50 + 8 * node["zone"]
+    else:
+        return [("nothing", 0, "")]
+    player.gain_skill_xp("gathering", "Woodcutting", xp)
+    return events + [("resource", 0, f"You take {', '.join(found)} (+{xp} Woodcutting XP)")]
+
+
+NODE_RESOLVERS["tree"] = _resolve_tree
+DISCOVERY_NODES["fallen_tree"] = ("make_tree_node", "One tree here still stands — and it's a fine one.")
+
+PROFESSION_EVENTS["Fletcher"].append(
+    {"id": "tracks", "skill": "Woodcutting", "level": 5, "icon": "🐾",
+     "title": "Animal tracks", "detail": "Set an ambush: your next fight starts with the enemy snared"})
+
+
+def bench_craft(player, skill, recipe, choice, additive=None):
+    """Craft at a workshop: Smithing (choice = 'weapon'|'armor') or Fletching (choice = profile)."""
+    from crafting import TRADE_PROFESSIONS
+    from items import fletch_item, forge_item
+    if skill_level(player, skill) < recipe["req"]:
+        return False, f"Requires {skill} {recipe['req']}.", None
+    if additive and additive not in usable_additives(player, skill):
+        return False, f"You can't use {additive} yet.", None
+    if not can_craft_at_bench(player, skill, recipe):
+        return False, "Missing materials.", None
+    for res, qty in recipe["inputs"].items():
+        player.remove_resource(res, qty)
+    if additive:
+        player.remove_resource(additive, 1)
+    rarity = roll_quality(craft_shift(player, skill, recipe, additive),
+                          legendary_possible=additive == LEGENDARY_ADDITIVE[skill])
+    if skill == "Smithing":
+        item = forge_item(choice, recipe["metal"], rarity, player.player_class)
+    else:
+        item = fletch_item(choice, recipe["wood"], recipe["kind"], rarity, player.player_class)
+    player.add_item(item)
+    bonus = skill in TRADE_PROFESSIONS.get(player.trade_profession, {}).get("bonus_skills", [])
+    xp = int(recipe["xp"] * (1.5 if bonus else 1))
+    player.gain_skill_xp("crafting", skill, xp)
+    verb = "forge" if skill == "Smithing" else "craft"
+    return True, f"You {verb} a [{rarity}] {item.name}! (+{xp} {skill} XP)", item
+
+
+def fletch(player, recipe, profile, additive=None):
+    return bench_craft(player, "Fletching", recipe, profile, additive)
+
+
+def spring_trap(player, enemy):
+    """Apply an armed Hunting Trap at the start of a fight. Returns a log line or None."""
+    if not player.armed_trap or enemy.is_boss:
+        return None
+    player.armed_trap = False
+    enemy.hp = max(1, enemy.hp - int(enemy.max_hp * TRAP_DAMAGE_PCT))
+    enemy.statuses["Chilled"] = 3
+    line = f"Your hunting trap snaps shut on the {enemy.name}! (−{int(TRAP_DAMAGE_PCT * 100)}% HP, slowed)"
+    if has_milestone(player, "Fletching", 15):
+        enemy.dot, enemy.dot_dmg, enemy.dot_name = max(enemy.dot, 3), max(enemy.dot_dmg, max(1, enemy.max_hp // 25)), "Bleed"
+        line += f" It bleeds for {enemy.dot_dmg}/turn."
+    return line

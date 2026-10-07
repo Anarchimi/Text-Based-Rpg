@@ -109,7 +109,9 @@ def generate_explore_options(player, zone_id, triggered_events, depth, ng=0):
         kind = random.choices(list(pool), weights=list(pool.values()))[0]
         del pool[kind]
         opt = {"kind": kind}
-        if kind == "trade":
+        if kind == "rest":
+            opt["kit"] = any(i.effect == "camp_kit" for i in player.inventory)
+        elif kind == "trade":
             opt["event"] = random.choice(trade_events)["id"]
             opt["trade"] = player.trade_profession
         elif kind == "treasure":
@@ -156,6 +158,8 @@ def describe_option(opt, zone_id, player_level=None):
     if kind == "mystery":
         return "❓ Follow the strange lights", "Anything could happen"
     if kind == "rest":
+        if opt.get("kit"):
+            return "🔥 Make camp (Camping Kit)", "+60% HP & MP · keeps half your trail depth"
         return "🔥 Make camp", f"+{int(REST_HEAL * 100)}% HP & MP · resets trail depth"
     if kind == "story":
         return "✦ Something stirs nearby", "An important moment in the story"
@@ -227,6 +231,12 @@ def resolve_option(opt, player, zone_id, triggered_events, depth):
             return [("trap_pct", fn(), msg)]
         return [("nothing", 0, "The lights vanish. You're left alone in the dark.")]
     if kind == "rest":
+        kit = next((i for i in player.inventory if i.effect == "camp_kit"), None)
+        if kit:  # Fletcher's Camping Kit: a better camp that keeps half the trail depth
+            from trades import CAMP_KIT_HEAL
+            player.inventory.remove(kit)
+            return [("heal_pct", CAMP_KIT_HEAL, "You pitch your Camping Kit and rest well."),
+                    ("heal_mp_pct", CAMP_KIT_HEAL, ""), ("set_depth", depth // 2, "")]
         return [("heal_pct", int(REST_HEAL * 100), "You make camp and rest."),
                 ("heal_mp_pct", int(REST_HEAL * 100), ""), ("reset_depth", 0, "")]
     if kind == "trade":

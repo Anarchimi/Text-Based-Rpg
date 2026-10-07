@@ -67,6 +67,7 @@ class Item:
     kind = None        # e.g. "Sword", "Plate", "Longbow" — what the crafted item actually is
     temper = None      # one-time Tempering applied (TEMPERS key), crafted gear only
     meal = None        # MEALS key for cooked meals (category "meal")
+    profile = None     # fletched weapons: "Power" / "Speed" / "Precision"
 
     def __init__(self, name, item_type, rarity, value, stats=None, effect=None, effect_value=0, effect_duration=0):
         self.name = name
@@ -250,6 +251,42 @@ def forge_item(slot, metal, rarity, player_class=None):
     _finish_gear(item, slot, level, rarity, player_class)
     item.crafted, item.material, item.kind = True, metal, kind
     item.value = int(value_base * (1 + 0.25 * RARITIES.index(rarity)))  # material-based, not loot prices
+    return item
+
+
+# ── Fletched weapons (Fletching workshop) ──────────────────────────────────────
+# Wood: (item level, sale value base, trait name, trait stats). The player picks a profile.
+WOODS = {
+    "Normal": (2,  15,  "plain",    {}),
+    "Oak":    (5,  30,  "sturdy",   {"hp": 15}),
+    "Willow": (8,  50,  "flexible", {"spd": 3}),
+    "Maple":  (12, 80,  "balanced", {"crit": 3}),
+    "Yew":    (16, 130, "powerful", {"atk_pct": 10}),
+    "Elder":  (21, 200, "mystic",   {"main": 6}),
+}
+LOG_WOOD = {f"{w} Logs": w for w in WOODS}
+PROFILES = {  # name: (ATK multiplier, flat stats, description)
+    "Power":     (1.25, {"spd": -3},  "+25% ATK, −3 SPD"),
+    "Speed":     (0.85, {"spd": 6},   "−15% ATK, +6 SPD"),
+    "Precision": (1.00, {"crit": 6},  "+6% crit"),
+}
+
+
+def fletch_item(profile, wood, kind, rarity, player_class=None):
+    """A real fletched weapon: wood level + rolled quality, the chosen stat profile and the wood's trait.
+    Mages turn any recipe into a staff."""
+    level, value_base, _, trait = WOODS[wood]
+    kind = "Staff" if player_class == "Mage" else kind
+    atk_mult, flat, _ = PROFILES[profile]
+    atk = (5 + level * 2) * rarity_multiplier(rarity) * atk_mult * (1 + trait.get("atk_pct", 0) / 100)
+    stats = {"atk": int(atk)}
+    for stat, v in list(flat.items()) + [(k, v) for k, v in trait.items() if k != "atk_pct"]:
+        stat = CLASS_MAIN_STAT.get(player_class, "dex") if stat == "main" else stat
+        stats[stat] = stats.get(stat, 0) + v
+    item = Item(f"{wood} {kind}" if wood != "Normal" else f"Wooden {kind}", "weapon", rarity, 0, stats)
+    _finish_gear(item, "weapon", level, rarity, player_class)
+    item.crafted, item.material, item.kind, item.profile = True, wood, kind, profile
+    item.value = int(value_base * (1 + 0.25 * RARITIES.index(rarity)))
     return item
 
 

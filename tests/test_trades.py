@@ -17,7 +17,9 @@ TESTED_MILESTONES = {("Smithing", 5), ("Herblore", 5), ("Cooking", 5), ("Fletchi
                      ("Herbalism", 5), ("Herbalism", 10), ("Herbalism", 15), ("Herbalism", 20),
                      ("Herblore", 10), ("Herblore", 15),
                      ("Fishing", 5), ("Fishing", 10), ("Fishing", 15), ("Fishing", 20),
-                     ("Cooking", 10), ("Cooking", 15)}
+                     ("Cooking", 10), ("Cooking", 15),
+                     ("Woodcutting", 5), ("Woodcutting", 10), ("Woodcutting", 15), ("Woodcutting", 20),
+                     ("Fletching", 10), ("Fletching", 15), ("Fletching", 20)}
 
 
 def trader(trade, cls='Warrior', level=8, **skills):
@@ -88,7 +90,7 @@ def test_every_discovery_resolves_to_real_rewards(trade):
         events = resolve_trade_event(ev['id'], p, 2, 0)
         gained_resources = sum(p.resources.values())
         items = [v for kind, v, _ in events if kind in ('item', 'node')]
-        assert gained_resources > 0 or items, f'{ev["id"]} gave nothing'
+        assert gained_resources > 0 or items or p.armed_trap, f'{ev["id"]} gave nothing'
         title, detail = world.describe_option({'kind': 'trade', 'event': ev['id'], 'trade': trade}, 2)
         assert ev['title'] in title and trade in detail
 
@@ -667,3 +669,194 @@ def test_old_saves_have_no_meal_or_trophies():
     del p.meal, p.trophies
     q = pickle.loads(pickle.dumps(p))
     assert q.meal is None and q.trophies == {} and q.meal_stat('vit') == 0
+
+
+# ── Phase 5: Fletcher ──────────────────────────────────────────────────────────
+
+from items import PROFILES, WOODS, fletch_item
+from enemies import spawn_enemy
+
+
+def fletcher(**skills):
+    return trader('Fletcher', cls='Rogue', **skills)
+
+
+def _frecipe(name):
+    return next(r for r in CRAFTING_RECIPES['Fletching'] if r['name'] == name)
+
+
+def test_fletched_weapons_are_no_longer_renamed_generic_weapons():
+    bow = fletch_item('Power', 'Yew', 'Longbow', 'Rare', 'Rogue')
+    assert bow.crafted and bow.material == 'Yew' and bow.kind == 'Longbow' and bow.profile == 'Power'
+    assert bow.name == 'Yew Longbow' and not bow.name.startswith('Crafted')
+    assert fletch_item('Power', 'Yew', 'Longbow', 'Rare', 'Mage').kind == 'Staff'
+    p = fletcher(Fletching=20)
+    p.resources = {'Oak Logs': 2}
+    assert not craft_item(p, 'Fletching', CRAFTING_RECIPES['Fletching'].index(_frecipe('Oak Shortbow')))[0], \
+        'generic crafting refuses fletched gear'
+
+
+def test_profiles_trade_damage_for_speed_or_crit(monkeypatch):
+    import items
+    monkeypatch.setattr(items, 'roll_affixes', lambda *a, **k: {})  # isolate the profile
+    power, speed, precision = (fletch_item(p, 'Willow', 'Bow', 'Rare', 'Rogue') for p in ('Power', 'Speed', 'Precision'))
+    assert power.stats['atk'] > precision.stats['atk'] > speed.stats['atk']
+    assert speed.stats['spd'] > precision.stats['spd'] > power.stats['spd']
+    assert precision.stats.get('crit', 0) > power.stats.get('crit', 0)
+
+
+@pytest.mark.parametrize('wood,stat', [('Oak', 'hp'), ('Willow', 'spd'), ('Maple', 'crit'), ('Elder', 'dex')])
+def test_wood_traits_shape_the_weapon(wood, stat, monkeypatch):
+    import items
+    monkeypatch.setattr(items, 'roll_affixes', lambda *a, **k: {})
+    assert fletch_item('Precision', wood, 'Bow', 'Common', 'Rogue').stats.get(stat, 0) > \
+        fletch_item('Precision', 'Normal', 'Bow', 'Common', 'Rogue').stats.get(stat, 0)
+
+
+def test_yew_is_powerful(monkeypatch):
+    import items
+    monkeypatch.setattr(items, 'roll_affixes', lambda *a, **k: {})
+    yew = fletch_item('Precision', 'Yew', 'Bow', 'Common')
+    base = (5 + WOODS['Yew'][0] * 2)
+    assert yew.stats['atk'] == int(base * 1.1)
+
+
+def test_grain_sense_reveals_wood_traits():
+    assert T.wood_trait(fletcher(Woodcutting=4), 'Yew') == '?'
+    assert T.wood_trait(fletcher(Woodcutting=5), 'Yew') == 'powerful'
+
+
+def test_trees_need_woodcutting_10_and_heartwood_trades_risk(monkeypatch):
+    assert T.make_tree_node(fletcher(Woodcutting=9), 2) is None
+    p = fletcher(Woodcutting=10)
+    monkeypatch.setattr(T, 'random', FixedRandom(0.9))
+    node = T.make_tree_node(p, 2)
+    assert node['logs'] == 'Oak Logs' and {o['key'] for o in node['options']} == {'fell', 'heart', 'leave'}
+    monkeypatch.setattr(T, 'random', FixedRandom(0.1))     # branch falls
+    events = T.resolve_node(node, 'heart', p)
+    assert events[0][0] == 'trap_pct' and p.resources.get('Heartwood') == 1
+    q = fletcher(Woodcutting=10)
+    monkeypatch.setattr(T, 'random', FixedRandom())
+    T.resolve_node(node, 'fell', q)
+    assert q.resources.get('Oak Logs', 0) >= 4 and 'Heartwood' not in q.resources
+
+
+def test_rare_groves_and_ancient_trees(monkeypatch):
+    monkeypatch.setattr(T, 'random', FixedRandom(0.1))
+    assert T.make_tree_node(fletcher(Woodcutting=15), 2)['logs'] == 'Willow Logs'
+    monkeypatch.setattr(T, 'random', FixedRandom(0.1))
+    assert T.make_tree_node(fletcher(Woodcutting=14), 2)['logs'] == 'Oak Logs'
+    for lv, expected in ((19, None), (20, 1)):
+        p = fletcher(Woodcutting=lv)
+        monkeypatch.setattr(T, 'random', FixedRandom(0.9))
+        node = T.make_tree_node(p, 2)
+        monkeypatch.setattr(T, 'random', FixedRandom(0.9, 0.01))   # no branch, ancient roll passes
+        T.resolve_node(node, 'heart', p)
+        assert p.resources.get('Ancient Heartwood') == expected
+
+
+def test_heartwood_inlay_and_ancient_bowyer():
+    p = fletcher(Fletching=9)
+    p.resources = {'Heartwood': 1, 'Ancient Heartwood': 1}
+    assert T.usable_additives(p, 'Fletching') == []
+    p = fletcher(Fletching=10)
+    p.resources = {'Heartwood': 1, 'Ancient Heartwood': 1}
+    assert T.usable_additives(p, 'Fletching') == ['Heartwood']
+    p = fletcher(Fletching=20)
+    p.resources = {'Willow Logs': 2, 'Ancient Heartwood': 1}
+    T.random_backup = T.random
+    T.random = FixedRandom(0.99)
+    try:
+        ok, msg, item = T.fletch(p, _frecipe('Willow Bow'), 'Speed', 'Ancient Heartwood')
+    finally:
+        T.random = T.random_backup
+    assert ok and item.rarity == 'Legendary' and item.profile == 'Speed'
+
+
+def test_hunting_trap_snares_the_next_non_boss_fight():
+    p = fletcher(Fletching=4)
+    p.resources = {'Normal Logs': 2}
+    ok, _, trap = craft_item(p, 'Fletching', CRAFTING_RECIPES['Fletching'].index(_frecipe('Hunting Trap')))
+    assert ok and trap.category == 'utility' and trap not in p.combat_consumables()
+    assert p.use_consumable(trap)[0] and p.armed_trap
+    boss = spawn_enemy(2, 8, force_boss=True)
+    assert T.spring_trap(p, boss) is None and p.armed_trap, 'bosses are too big to snare'
+    e = spawn_enemy(2, 8)
+    line = T.spring_trap(p, e)
+    assert line and e.hp < e.max_hp and 'Chilled' in e.statuses and not p.armed_trap and e.dot == 0
+
+
+def test_snare_mastery_adds_bleed():
+    p = fletcher(Fletching=15)
+    p.armed_trap = True
+    e = spawn_enemy(2, 8)
+    T.spring_trap(p, e)
+    assert e.dot > 0 and e.dot_name == 'Bleed'
+
+
+def test_trap_springs_when_a_trail_fight_starts(monkeypatch):
+    import app as game_app
+    from quests import QuestLog
+    p = fletcher()
+    p.armed_trap = True
+    e = spawn_enemy(1, 1)
+    st = game_app.fresh_state()
+    st.update(player=p, quest_log=QuestLog())
+    game_app.start_combat(st, e, 'A goblin appears!', return_to='explore')
+    assert e.hp < e.max_hp and any('trap' in l['text'] for l in st['combat_log'])
+
+
+def test_animal_tracks_set_a_free_ambush():
+    assert 'tracks' not in {e['id'] for e in available_trade_events(fletcher(Woodcutting=4), 2)}
+    p = fletcher(Woodcutting=5)
+    assert 'tracks' in {e['id'] for e in available_trade_events(p, 2)}
+    resolve_trade_event('tracks', p, 2, 0)
+    assert p.armed_trap
+
+
+def test_camping_kit_improves_one_camp_and_keeps_half_the_depth():
+    import world
+    p = fletcher()
+    p.add_item(Item('Camping Kit', 'consumable', 'Common', 25, effect='camp_kit'))
+    assert not p.use_consumable(p.inventory[-1])[0], 'used automatically, not from the bag'
+    events = world.resolve_option({'kind': 'rest'}, p, 2, set(), depth=8)
+    assert ('heal_pct', T.CAMP_KIT_HEAL, ) == events[0][:2] and ('set_depth', 4) == events[-1][:2]
+    assert not any(i.effect == 'camp_kit' for i in p.inventory), 'one camp per kit'
+    plain = world.resolve_option({'kind': 'rest'}, p, 2, set(), depth=8)
+    assert plain[-1][0] == 'reset_depth'
+
+
+def test_smoke_arrow_escapes_but_not_the_final_battle():
+    from enemies import spawn_final_boss
+    for enemy, expected in ((spawn_enemy(2, 8, force_boss=True), 'fled'), (spawn_final_boss(19), 'continue')):
+        p = fletcher()
+        p.max_hp = p.hp = 10_000
+        arrow = Item('Smoke Arrow', 'consumable', 'Common', 25, effect='smoke_escape')
+        arrow.category = 'utility'
+        p.add_item(arrow)
+        idx = p.combat_consumables().index(arrow)
+        st = {'player': p, 'combat_enemy': enemy, 'combat_log': [], 'combat_turn': 1}
+        assert combat.do_combat_turn(st, 'item', item_idx=idx) == expected
+        assert (arrow in p.inventory) == (expected == 'continue')
+
+
+def test_fletching_bench_flow_through_the_web():
+    import app as game_app, os
+    from quests import QuestLog
+    client = game_app.app.test_client()
+    client.get('/')
+    with client.session_transaction() as s:
+        sid = s['sid']
+    p = fletcher(Fletching=9, Woodcutting=5)
+    p.resources = {'Willow Logs': 2}
+    st = game_app.fresh_state()
+    st.update(player=p, quest_log=QuestLog(), screen='craft', craft_skill='Fletching')
+    path = os.path.join(game_app.SAVE_DIR, f'{sid}.pkl')
+    pickle.dump(st, open(path, 'wb'))
+    idx = CRAFTING_RECIPES['Fletching'].index(_frecipe('Willow Bow'))
+    page = client.post('/action', data={'action': f'forge_{idx}'}, follow_redirects=True).get_data(as_text=True)
+    assert 'Fletching Bench' in page and 'flexible' in page and 'Precision' in page
+    client.post('/action', data={'action': 'ws_profile_Precision'})
+    client.post('/action', data={'action': 'ws_forge'})
+    inv = pickle.load(open(path, 'rb'))['player'].inventory
+    assert any(i.profile == 'Precision' and i.material == 'Willow' for i in inv)

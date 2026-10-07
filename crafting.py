@@ -39,7 +39,9 @@ ZONE_RESOURCES = {
 
 # ── Crafting recipes ──────────────────────────────────────────────────────────
 # output_type: "resource" → adds to player.resources
-#              "forge" → opens the Smithing workshop (trades.forge): choose weapon/armor + additive
+#              "forge" / "fletch" → open the workshop (trades.forge / trades.fletch): choose slot or profile + additive
+#              "utility" → Fletcher tools (Hunting Trap, Camping Kit, Smoke Arrow), category "utility"
+#              "meal" → multi-fight meals (trades.MEALS)
 #              "weapon" / "armor" → generates item at level_param
 #              "consumable" → creates Item directly with effect/effect_value/effect_duration
 CRAFTING_RECIPES = {
@@ -87,12 +89,15 @@ CRAFTING_RECIPES = {
         {"name":"Dark Crab Meat",   "inputs":{"Raw Dark Crab":1}, "output_type":"consumable","effect":"heal_overheal","effect_value":80,"output_name":"Dark Crab Meat","req":19,"xp":100},
     ],
     "Fletching": [
-        {"name":"Wooden Staff",   "inputs":{"Normal Logs":2}, "output_type":"weapon","level_param":2, "req":1, "xp":30},
-        {"name":"Oak Shortbow",   "inputs":{"Oak Logs":2},    "output_type":"weapon","level_param":5, "req":5, "xp":45},
-        {"name":"Willow Bow",     "inputs":{"Willow Logs":2}, "output_type":"weapon","level_param":8, "req":9, "xp":60},
-        {"name":"Maple Longbow",  "inputs":{"Maple Logs":2},  "output_type":"weapon","level_param":12,"req":12,"xp":80},
-        {"name":"Yew Longbow",    "inputs":{"Yew Logs":2},    "output_type":"weapon","level_param":16,"req":16,"xp":100},
-        {"name":"Elder Bow",      "inputs":{"Elder Logs":2},  "output_type":"weapon","level_param":21,"req":19,"xp":130},
+        {"name":"Wooden Staff",   "inputs":{"Normal Logs":2}, "output_type":"fletch","wood":"Normal","kind":"Staff",   "req":1, "xp":30},
+        {"name":"Oak Shortbow",   "inputs":{"Oak Logs":2},    "output_type":"fletch","wood":"Oak",   "kind":"Shortbow","req":5, "xp":45},
+        {"name":"Willow Bow",     "inputs":{"Willow Logs":2}, "output_type":"fletch","wood":"Willow","kind":"Bow",     "req":9, "xp":60},
+        {"name":"Maple Longbow",  "inputs":{"Maple Logs":2},  "output_type":"fletch","wood":"Maple", "kind":"Longbow", "req":12,"xp":80},
+        {"name":"Yew Longbow",    "inputs":{"Yew Logs":2},    "output_type":"fletch","wood":"Yew",   "kind":"Longbow", "req":16,"xp":100},
+        {"name":"Elder Bow",      "inputs":{"Elder Logs":2},  "output_type":"fletch","wood":"Elder", "kind":"Bow",     "req":19,"xp":130},
+        {"name":"Hunting Trap",   "inputs":{"Normal Logs":2},                   "output_type":"utility","utility":"arm_trap",     "output_name":"Hunting Trap", "req":4, "xp":35},
+        {"name":"Camping Kit",    "inputs":{"Oak Logs":2,"Willow Logs":1},      "output_type":"utility","utility":"camp_kit",     "output_name":"Camping Kit",  "req":10,"xp":70},
+        {"name":"Smoke Arrow",    "inputs":{"Maple Logs":1},                    "output_type":"utility","utility":"smoke_escape", "output_name":"Smoke Arrow",  "req":12,"xp":60},
     ],
 }
 
@@ -127,7 +132,7 @@ TRADE_PROFESSIONS = {
     "Fletcher": {
         "desc": "Woodcutting & Fletching woodsman.",
         "bonus_skills": ["Woodcutting", "Fletching"],
-        "perks": ["Masterwork: fletched bows and staves come out Rare.",
+        "perks": ["Masterwork: better fletching odds (quality roll +10%).",
                   "Woodsman's Eye: on the trail, forage paths lead to timber (+1 wood) and treasure traps are half as likely."],
         "start_resources": {"Oak Logs": 5, "Normal Logs": 3},
         "icon": "🏹",
@@ -215,8 +220,8 @@ def craft_item(player, skill_name, recipe_idx, player_class=None):
         return False, "Invalid recipe.", None
 
     recipe = recipes[recipe_idx]
-    if recipe["output_type"] == "forge":
-        return False, "Gear is made at the forge — open it from this recipe.", None
+    if recipe["output_type"] in ("forge", "fletch"):
+        return False, "Gear is made at the workshop — open it from this recipe.", None
     skill_data = getattr(player, 'crafting_skills', {}).get(skill_name, {"level": 1, "xp": 0})
 
     if skill_data["level"] < recipe["req"]:
@@ -241,16 +246,12 @@ def craft_item(player, skill_name, recipe_idx, player_class=None):
         player.add_resource(recipe["output_name"], 1)
         return True, f"Crafted {recipe['output_name']}! (+{raw_xp} XP){lv_msg}", None
 
-    if out_type in ("weapon", "armor"):
-        pc = player_class or getattr(player, 'player_class', None)
-        rarity = "Rare" if MASTERWORK_SKILLS.get(tp) == skill_name else "Uncommon"
-        if out_type == "weapon":
-            item = generate_weapon(player_class=pc, level=recipe["level_param"], rarity=rarity)
-        else:
-            item = generate_armor(level=recipe.get("level_param", 5), rarity=rarity, player_class=pc)
-        item.name = f"Crafted {recipe['name']}"
+    if out_type == "utility":
+        from trades import UTILITY_TEXT
+        item = Item(recipe["output_name"], "consumable", "Common", 25, effect=recipe["utility"])
+        item.category = "utility"
         player.add_item(item)
-        return True, f"Crafted {item.name}! (+{raw_xp} XP){lv_msg}", item
+        return True, f"Crafted {item.name}: {UTILITY_TEXT[recipe['utility']]} (+{raw_xp} XP){lv_msg}", item
 
     if out_type == "meal":
         from trades import MEALS, meal_text
