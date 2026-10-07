@@ -24,6 +24,12 @@
         <div class="item-meta">Upgrade to +{{ it.upgrade + 1 }}: {{ cost[0] }}g + {{ cost[2] }}× {{ cost[1] }}
           <span class="{% if have >= cost[2] %}have-yes{% else %}have-no{% endif %}">(have {{ have }})</span></div>
         {% elif it %}<div class="item-meta" style="color:var(--yellow)">Fully upgraded</div>{% endif %}
+        {% for tname, ttext, tgold, tbar in trades.temper_options(p, it) %}
+        <form method="post" action="/action" style="margin-top:4px;">
+          <button class="btn-sm {{ 'btn-purple' if p.gold >= tgold and p.resources.get(tbar, 0) else 'btn-dim' }}" name="action" value="temper_{{ slot }}_{{ tname }}">
+            🔥 Temper: {{ tname }} <span class="ability-desc">{{ ttext }} · {{ tgold }}g + 1× {{ tbar }} (have {{ p.resources.get(tbar, 0) }}) · once only</span></button>
+        </form>
+        {% endfor %}
       </div>
       {% if cost %}
       <div class="item-actions">

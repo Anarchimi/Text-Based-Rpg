@@ -1,0 +1,22 @@
+  {% set p = state.player %}
+  {% set node = state.pending_node %}
+  <p class="page-title">{{ zones[state.zone].name }}</p>
+  {% if state.messages %}
+  <div class="msgs">{% for m in state.messages %}<div class="msg msg-{{ m.kind }}">{{ m.text }}</div>{% endfor %}</div>
+  {% endif %}
+  {% if node %}
+  <div class="card node-card">
+    <div class="node-title">{{ node.title }}</div>
+    <div class="node-text">{{ node.text }}</div>
+    <div class="item-meta">HP {{ p.hp }}/{{ p.max_hp }}</div>
+  </div>
+  <form method="post" action="/action">
+    {% for opt in node.options %}
+    <button class="path-btn {{ 'btn-dim' if opt.key == 'leave' else '' }}" name="action" value="node_{{ opt.key }}">
+      {{ opt.label }}{% if opt.detail %}<span class="ability-desc">{{ opt.detail }}</span>{% endif %}
+    </button>
+    {% endfor %}
+  </form>
+  {% else %}
+  <form method="post" action="/action"><button class="btn-dim" name="action" value="back">↩ Back</button></form>
+  {% endif %}

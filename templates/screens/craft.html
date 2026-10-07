@@ -51,6 +51,7 @@
         Req Lv {{ recipe.req }} · +{{ recipe.xp }} XP ·
         {% if recipe.output_type == 'resource' %}→ {{ recipe.output_name }}
         {% elif recipe.output_type == 'consumable' %}→ {{ recipe.output_name }}
+        {% elif recipe.output_type == 'forge' %}→ {{ recipe.metal }} weapon or armor at the forge
         {% elif recipe.output_type == 'weapon' %}→ Weapon (Lv {{ recipe.level_param }})
         {% elif recipe.output_type == 'armor' %}→ Armor (Lv {{ recipe.level_param }})
         {% endif %}
@@ -63,7 +64,9 @@
         </span>{% if not loop.last %} &nbsp;{% endif %}
         {% endfor %}
       </div>
-      {% if meets_req %}
+      {% if meets_req and recipe.output_type == 'forge' %}
+      <button class="btn-yellow btn-sm" name="action" value="forge_{{ i }}">⚒ Forge…</button>
+      {% elif meets_req %}
       <button class="{% if ns.has_all %}btn-green{% else %}btn-dim{% endif %} btn-sm"
               name="action" value="craft_{{ cur_skill }}_{{ i }}"
               {% if not ns.has_all %}disabled{% endif %}>

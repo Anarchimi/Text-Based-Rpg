@@ -15,9 +15,10 @@ from quests import BOUNTY_LEADER_CHANCE
 from combat import ability_cost, defend_reduction, do_combat_turn, end_combat, hit_player  # noqa: F401  (hit_player re-exported for tests)
 from quests import QuestLog, generate_quest
 from items import (generate_shop_stock, generate_weapon, generate_armor, generate_consumable, upgrade_cost,
-                   STAT_LABELS, LEGENDARY_EFFECTS)
+                   STAT_LABELS, LEGENDARY_EFFECTS, METAL_TRAIT_TEXT, SMITHED_WEAPON)
 from world import (travel_to_zone, ZONES, ZONE_LEVEL_REQ, LAIR_STEPS, MAX_DEPTH, DEPTH_GOLD, DEPTH_LUCK,
                    get_zone, generate_explore_options, describe_option, resolve_option, depth_effects)
+import trades
 from trades import TRADE_MILESTONES, next_milestone
 from crafting import (TRADE_PROFESSIONS, CRAFTING_RECIPES, ZONE_RESOURCES,
                       GATHERING_SKILLS, CRAFTING_SKILLS, SKILL_ICONS,
@@ -46,6 +47,9 @@ app.jinja_env.globals['depth_effects'] = depth_effects
 app.jinja_env.globals['max_depth'] = MAX_DEPTH
 app.jinja_env.globals['next_milestone'] = next_milestone
 app.jinja_env.globals['trade_milestones'] = TRADE_MILESTONES
+app.jinja_env.globals['trades'] = trades
+app.jinja_env.globals['metal_traits'] = METAL_TRAIT_TEXT
+app.jinja_env.globals['smithed_weapon'] = SMITHED_WEAPON
 app.jinja_env.globals['profession_abilities'] = PROFESSION_ABILITIES
 app.jinja_env.globals['ability_cost'] = ability_cost
 app.jinja_env.globals['defend_reduction'] = defend_reduction
@@ -168,6 +172,9 @@ def fresh_state():
         'lair_progress': {},      # zone id -> explore steps taken there (LAIR_STEPS finds the boss)
         'depth': 0,               # trail depth: paths taken since last rest (see world.py)
         'explore_options': None,  # offered paths, kept until one is taken
+        'pending_node': None,     # special trade node being decided (trades.py), shown on `node`
+        'node_return': 'gather',  # screen to go back to after the node
+        'workshop': None,         # {'skill', 'recipe', 'slot', 'additive'} on the `workshop` screen
         'triggered_events': set(),
         'craft_skill': 'Smithing',
     }
@@ -212,6 +219,19 @@ def inn_prices(player):
 app.jinja_env.globals['inn_prices'] = inn_prices
 app.jinja_env.globals['fully_rested'] = fully_rested
 app.jinja_env.globals['nap_restore'] = nap_restore
+
+
+def special_node_for(player, zone, skill):
+    """Occasionally a routine gather tap turns into a special node (milestone-gated)."""
+    if skill == 'Mining' and random.random() < trades.VEIN_CHANCE:
+        return trades.make_vein_node(player, zone)
+    return None
+
+
+def open_node(state, node, return_to):
+    state['pending_node'] = node
+    state['node_return'] = return_to
+    state['screen'] = 'node'
 
 
 def reset_depth(state):
@@ -260,10 +280,15 @@ def take_explore_path(state, player, opt):
     state['depth'] = min(MAX_DEPTH, depth + 1)
     events = resolve_option(opt, player, zone, state.setdefault('triggered_events', set()), depth)
     apply_explore_events(state, player, events)
-    if state['screen'] != 'explore':
-        return  # a fight started
+    if state['screen'] == 'explore':
+        after_explore_step(state, player)
+    # else: a fight or a special node opened; the step finishes when that resolves
+
+
+def after_explore_step(state, player):
+    """Quest progress, profession prompt and fresh paths after a non-fight trail step."""
     quest_log = state['quest_log']
-    quest_log.check_event('explore', get_zone(zone)['name'])
+    quest_log.check_event('explore', get_zone(state['zone'])['name'])
     complete_finished_quests(state, player, quest_log)
     if not check_profession_unlock(state, player, 'explore'):
         ensure_explore_options(state)
@@ -313,6 +338,10 @@ def apply_explore_events(state, player, events):
         elif ev_type == 'reset_depth':
             reset_depth(state)
             add_msg(state, 'dim', 'Rested — the trail depth resets.')
+        elif ev_type == 'node':
+            add_msg(state, 'info', ev_msg)
+            open_node(state, val, return_to=state['screen'])
+            return
         elif ev_type == 'encounter':
             add_msg(state, 'warning', ev_msg)
             enemy = val
@@ -593,6 +622,41 @@ def action():
                 clear_msgs(state)
                 take_explore_path(state, player, options[idx])
 
+    elif screen == 'node':
+        player = state['player']
+        node = state.get('pending_node')
+        key = act[5:] if act.startswith('node_') else None
+        if node and key in {o['key'] for o in node['options']}:
+            clear_msgs(state)
+            state['pending_node'] = None
+            back = state.get('node_return') or 'hub'
+            state['screen'] = back
+            apply_explore_events(state, player, trades.resolve_node(node, key, player))
+            if state['screen'] == 'explore':
+                after_explore_step(state, player)
+        elif not node:
+            state['screen'] = state.get('node_return') or 'hub'
+
+    elif screen == 'workshop':
+        player = state['player']
+        ws = state.get('workshop') or {}
+        recipes = CRAFTING_RECIPES.get(ws.get('skill'), [])
+        recipe = recipes[ws['recipe']] if 0 <= ws.get('recipe', -1) < len(recipes) else None
+        if act == 'back' or recipe is None:
+            state['screen'] = 'craft'
+            clear_msgs(state)
+        elif act in ('ws_slot_weapon', 'ws_slot_armor'):
+            ws['slot'] = act.rsplit('_', 1)[1]
+        elif act.startswith('ws_add_'):
+            add = act[len('ws_add_'):]
+            ws['additive'] = add if add in trades.usable_additives(player) else None
+        elif act == 'ws_forge':
+            clear_msgs(state)
+            ok, text, _ = trades.forge(player, recipe, ws.get('slot', 'weapon'), ws.get('additive'))
+            add_msg(state, 'success' if ok else 'danger', text)
+            if ws.get('additive') not in trades.usable_additives(player):
+                ws['additive'] = None
+
     elif screen == 'combat_result':
         if act == 'continue':
             state['screen'] = state.pop('return_to', 'hub')
@@ -693,6 +757,10 @@ def action():
             if 0 <= idx < len(equippable):
                 ok, text = player.equip(equippable[idx])
                 add_msg(state, 'success' if ok else 'danger', text)
+        elif act.startswith('temper_'):
+            _, slot, name = act.split('_', 2)
+            ok, text = trades.temper(player, player.equipment.get(slot), name)
+            add_msg(state, 'success' if ok else 'danger', text)
         elif act in ('upgrade_weapon', 'upgrade_armor'):
             ok, text = player.upgrade_equipped(act.split('_', 1)[1])
             add_msg(state, 'success' if ok else 'danger', text)
@@ -753,8 +821,18 @@ def action():
             clear_msgs(state)
         elif act.startswith('gather_'):
             skill_name = act.split('_', 1)[1]  # e.g. "gather_Mining" → "Mining"
-            result = gather_resource(player, state['zone'], skill_name)
-            if result is None:
+            clear_msgs(state)
+            node = special_node_for(player, state['zone'], skill_name)
+            if node:
+                add_msg(state, 'info', 'Something unusual catches your eye…')
+                open_node(state, node, return_to='gather')
+                result = None
+                skill_name = None
+            else:
+                result = gather_resource(player, state['zone'], skill_name)
+            if skill_name is None:
+                pass
+            elif result is None:
                 add_msg(state, 'warning', f'Your {skill_name} level is too low to gather here. Level up first!')
             else:
                 res_name, qty, xp, leveled_up = result
@@ -770,6 +848,16 @@ def action():
             clear_msgs(state)
         elif act.startswith('tab_'):
             state['craft_skill'] = act.split('_', 1)[1]
+        elif act.startswith('forge_'):
+            try:
+                idx = int(act.split('_', 1)[1])
+            except ValueError:
+                idx = -1
+            recipes = CRAFTING_RECIPES.get(state['craft_skill'], [])
+            if 0 <= idx < len(recipes) and recipes[idx]['output_type'] == 'forge':
+                clear_msgs(state)
+                state['workshop'] = {'skill': state['craft_skill'], 'recipe': idx, 'slot': 'weapon', 'additive': None}
+                state['screen'] = 'workshop'
         elif act.startswith('craft_'):
             parts = act.split('_', 2)
             if len(parts) == 3:

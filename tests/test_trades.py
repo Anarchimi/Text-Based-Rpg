@@ -11,7 +11,9 @@ from trades import (PROFESSION_EVENTS, TRADE_MILESTONES, available_trade_events,
                     milestones_between, resolve_trade_event)
 
 # Every milestone listed must be backed by a test below. Add to this set with the test.
-TESTED_MILESTONES = {("Smithing", 5), ("Herblore", 5), ("Cooking", 5), ("Fletching", 5)}
+TESTED_MILESTONES = {("Smithing", 5), ("Herblore", 5), ("Cooking", 5), ("Fletching", 5),
+                     ("Mining", 5), ("Mining", 10), ("Mining", 15), ("Mining", 20),
+                     ("Smithing", 10), ("Smithing", 15), ("Smithing", 20)}
 
 
 def trader(trade, cls='Warrior', level=8, **skills):
@@ -20,7 +22,7 @@ def trader(trade, cls='Warrior', level=8, **skills):
     p.trade_profession = trade
     for name, lv in skills.items():
         table = p.gathering_skills if name in p.gathering_skills else p.crafting_skills
-        table[name]['level'] = lv
+        table[name] = {'level': lv, 'xp': 50 * lv * (lv - 1)}  # XP must match, or the next gain recomputes it
     p.resources = {}
     return p
 
@@ -81,7 +83,7 @@ def test_every_discovery_resolves_to_real_rewards(trade):
         random.seed(1)
         events = resolve_trade_event(ev['id'], p, 2, 0)
         gained_resources = sum(p.resources.values())
-        items = [v for kind, v, _ in events if kind == 'item']
+        items = [v for kind, v, _ in events if kind in ('item', 'node')]
         assert gained_resources > 0 or items, f'{ev["id"]} gave nothing'
         title, detail = world.describe_option({'kind': 'trade', 'event': ev['id'], 'trade': trade}, 2)
         assert ev['title'] in title and trade in detail
@@ -117,3 +119,226 @@ def test_old_players_load_without_trade_fields():
     del p.unlock_log, p.trade_specialization
     q = pickle.loads(pickle.dumps(p))
     assert q.pop_unlocks() == [] and q.trade_specialization is None
+
+
+# ── Phase 2: Blacksmith ────────────────────────────────────────────────────────
+
+import trades as T
+from crafting import CRAFTING_RECIPES, craft_item
+from items import METALS, Item, forge_item
+
+
+class FixedRandom:
+    """Deterministic stand-in for trades.random: random() returns queued values, randint the low end."""
+    def __init__(self, *values):
+        self.values = list(values)
+
+    def random(self):
+        return self.values.pop(0) if self.values else 0.99
+
+    def randint(self, a, b):
+        return a
+
+    def choice(self, seq):
+        return seq[0]
+
+
+def smith(**skills):
+    return trader('Blacksmith', **skills)
+
+
+def test_veins_need_ore_sense():
+    assert T.make_vein_node(smith(Mining=4), 2) is None
+    node = T.make_vein_node(smith(Mining=5), 2)
+    assert node and {o['key'] for o in node['options']} == {'safe', 'deep', 'leave'}
+
+
+@pytest.mark.parametrize('zone,ore', [(1, 'Copper Ore'), (2, 'Iron Ore'), (3, 'Mithril Ore'), (5, 'Dragon Metal')])
+def test_veins_are_the_zones_main_ore(zone, ore):
+    assert T.make_vein_node(smith(Mining=20), zone)['ore'] == ore
+
+
+def test_prospecting_appears_at_mining_10():
+    keys = {o['key'] for o in T.make_vein_node(smith(Mining=10), 2)['options']}
+    assert 'prospect' in keys
+
+
+def test_vein_choices_trade_risk_for_reward(monkeypatch):
+    def run(key, *rolls, **skills):
+        p = smith(**skills)
+        node = T.make_vein_node(p, 2)
+        monkeypatch.setattr(T, 'random', FixedRandom(*rolls))
+        events = T.resolve_node(node, key, p)
+        return p, events
+    safe, _ = run('safe', Mining=5)
+    deep_ok, _ = run('deep', 0.9, 0.99, Mining=5)          # no cave-in
+    deep_bad, ev = run('deep', 0.1, Mining=5)               # cave-in
+    assert sum(deep_ok.resources.values()) > sum(safe.resources.values()) > sum(deep_bad.resources.values())
+    assert ev[0][0] == 'trap_pct', 'a cave-in hurts'
+    prospect, _ = run('prospect', 0.1, 0.9, Mining=10)       # gem roll succeeds, not flawless
+    assert prospect.resources.get('Rough Gem') == 1 and sum(prospect.resources.values()) < sum(safe.resources.values())
+
+
+def test_deep_veins_strike_next_zone_ore_at_15(monkeypatch):
+    p = smith(Mining=15)
+    node = T.make_vein_node(p, 2)
+    assert node['deep_ore'] == 'Gold Ore' and 'Gold Ore' in node['options'][1]['detail']
+    monkeypatch.setattr(T, 'random', FixedRandom(0.9, 0.1, 0.99))
+    T.resolve_node(node, 'deep', p)
+    assert p.resources.get('Gold Ore')
+    assert T.make_vein_node(smith(Mining=14), 2)['deep_ore'] is None
+
+
+def test_starmetal_only_at_mining_20(monkeypatch):
+    for lv, expected in ((19, None), (20, 1)):
+        p = smith(Mining=lv)
+        node = T.make_vein_node(p, 2)
+        monkeypatch.setattr(T, 'random', FixedRandom(0.1, 0.9, 0.01))  # gem, not flawless, star roll passes
+        T.resolve_node(node, 'prospect', p)
+        assert p.resources.get('Starmetal') == expected
+
+
+def test_mining_taps_can_open_a_vein_node(monkeypatch):
+    import app as game_app
+    monkeypatch.setattr(T, 'VEIN_CHANCE', 1.0)
+    st = game_app.fresh_state()
+    from quests import QuestLog
+    st.update(player=smith(Mining=5), quest_log=QuestLog(), screen='gather', zone=2)
+    with game_app.app.test_request_context('/action', method='POST', data={'action': 'gather_Mining'}):
+        from flask import session
+        session['sid'] = '00000000-0000-4000-8000-000000000002'
+        game_app.save_state(st)
+        game_app.action()
+        st = game_app.get_state()
+    assert st['screen'] == 'node' and st['pending_node']['type'] == 'vein' and st['node_return'] == 'gather'
+
+
+def test_blacksmith_trail_vein_returns_to_the_trail(monkeypatch):
+    import app as game_app
+    from quests import QuestLog
+    p = smith(Mining=5)
+    monkeypatch.setattr(game_app, 'generate_explore_options',
+                        lambda *a, **k: [{'kind': 'trade', 'event': 'ore_vein', 'trade': 'Blacksmith'}])
+    st = game_app.fresh_state()
+    st.update(player=p, quest_log=QuestLog(), screen='explore', zone=2)
+    game_app.ensure_explore_options(st)
+    game_app.take_explore_path(st, p, st['explore_options'][0])
+    assert st['screen'] == 'node' and st['node_return'] == 'explore'
+
+
+# Forging
+
+def _recipe(metal):
+    return next(r for r in CRAFTING_RECIPES['Smithing'] if r.get('metal') == metal)
+
+
+def test_forge_recipes_cannot_be_crafted_generically():
+    p = smith(Smithing=20)
+    p.resources = {'Iron Bar': 2}
+    idx = CRAFTING_RECIPES['Smithing'].index(_recipe('Iron'))
+    ok, _, _ = craft_item(p, 'Smithing', idx)
+    assert not ok and p.resources['Iron Bar'] == 2
+
+
+@pytest.mark.parametrize('slot', ['weapon', 'armor'])
+def test_forged_gear_is_real_named_equipment(slot):
+    item = forge_item(slot, 'Mithril', 'Rare', 'Rogue')
+    assert item.crafted and item.material == 'Mithril' and item.item_type == slot
+    assert item.name == ('Mithril Dagger' if slot == 'weapon' else 'Mithril Plate')
+    assert item.stats['spd'] >= METALS['Mithril'][2][slot]['spd'], 'metal trait applied'
+    assert ('atk' if slot == 'weapon' else 'def') in item.stats
+
+
+def test_quality_odds_are_exact_and_need_investment():
+    base = T.quality_odds(0)
+    assert abs(sum(base.values()) - 1) < 1e-6 and 'Epic' not in base and 'Legendary' not in base
+    invested = T.quality_odds(0.4)
+    assert invested.get('Epic', 0) > 0 and 'Common' not in invested
+    assert 'Legendary' not in invested and T.quality_odds(0.4, legendary_possible=True)['Legendary'] > 0
+
+
+def test_forging_uses_the_roll_and_spends_materials(monkeypatch):
+    p = smith(Smithing=9)
+    p.resources = {'Steel Bar': 2}
+    monkeypatch.setattr(T, 'random', FixedRandom(0.99))   # top of the roll
+    ok, msg, item = T.forge(p, _recipe('Steel'), 'weapon')
+    assert ok and item.rarity == 'Epic' and p.resources.get('Steel Bar', 0) == 0 and item in p.inventory
+    assert not T.forge(p, _recipe('Steel'), 'weapon')[0], 'no bars left'
+
+
+def test_gem_inlay_needs_smithing_10_and_raises_odds():
+    p = smith(Smithing=9)
+    p.resources = {'Rough Gem': 1}
+    assert T.usable_additives(p) == []
+    p.crafting_skills['Smithing']['level'] = 10
+    assert T.usable_additives(p) == ['Rough Gem']
+    r = _recipe('Steel')
+    assert T.forge_shift(p, r, 'Rough Gem') > T.forge_shift(p, r)
+
+
+def test_starforging_is_the_only_legendary_path(monkeypatch):
+    p = smith(Smithing=20)
+    p.resources = {'Steel Bar': 4, 'Rough Gem': 1, 'Starmetal': 1}
+    assert 'Starmetal' in T.usable_additives(p)
+    monkeypatch.setattr(T, 'random', FixedRandom(0.99))
+    ok, msg, gem_item = T.forge(p, _recipe('Steel'), 'armor', 'Rough Gem')
+    assert ok, msg
+    monkeypatch.setattr(T, 'random', FixedRandom(0.99))
+    _, _, star_item = T.forge(p, _recipe('Steel'), 'armor', 'Starmetal')
+    assert gem_item.rarity == 'Epic' and star_item.rarity == 'Legendary' and star_item.legendary
+    assert 'Starmetal' not in T.usable_additives(smith(Smithing=19, ))
+
+
+def test_workshop_screen_flow():
+    import app as game_app, os, pickle
+    from quests import QuestLog
+    client = game_app.app.test_client()
+    client.get('/')
+    with client.session_transaction() as s:
+        sid = s['sid']
+    p = smith(Smithing=9)
+    p.resources = {'Steel Bar': 2}
+    st = game_app.fresh_state()
+    st.update(player=p, quest_log=QuestLog(), screen='craft', craft_skill='Smithing')
+    path = os.path.join(game_app.SAVE_DIR, f'{sid}.pkl')
+    pickle.dump(st, open(path, 'wb'))
+    idx = CRAFTING_RECIPES['Smithing'].index(_recipe('Steel'))
+    page = client.post('/action', data={'action': f'forge_{idx}'}, follow_redirects=True).get_data(as_text=True)
+    odds = T.quality_odds(T.forge_shift(p, _recipe('Steel')))
+    assert 'The Forge' in page and 'Quality odds' in page and f"Common {round(odds['Common'] * 100)}%" in page
+    client.post('/action', data={'action': 'ws_slot_armor'})
+    page = client.post('/action', data={'action': 'ws_forge'}, follow_redirects=True).get_data(as_text=True)
+    assert 'Steel Plate' in page
+    inv = pickle.load(open(path, 'rb'))['player'].inventory
+    assert any(i.crafted and i.kind == 'Plate' for i in inv)
+
+
+# Tempering
+
+def test_tempering_needs_smithing_15_crafted_gear_and_is_once_only():
+    item = forge_item('armor', 'Steel', 'Rare')
+    loot = Item('Loot Plate', 'armor', 'Rare', 10, {'def': 40})
+    p = smith(Smithing=14)
+    p.gold, p.resources = 1000, {'Steel Bar': 3}
+    assert T.temper_options(p, item) == []
+    p.crafting_skills['Smithing']['level'] = 15
+    assert {n for n, *_ in T.temper_options(p, item)} == {'Reinforce', 'Heavy Plating'}
+    assert T.temper_options(p, loot) == [], 'loot cannot be tempered'
+    before = dict(item.stats)
+    ok, _ = T.temper(p, item, 'Heavy Plating')
+    assert ok and item.stats['def'] > before['def'] and item.stats.get('spd', 0) < before.get('spd', 0)
+    assert T.temper_options(p, item) == [] and not T.temper(p, item, 'Reinforce')[0]
+
+
+def test_tempering_and_upgrades_stack_once_without_looping():
+    p = smith(Smithing=15)
+    p.gold, p.resources = 100000, {'Steel Bar': 5, 'Bronze Bar': 2, 'Iron Bar': 2}
+    sword = forge_item('weapon', 'Steel', 'Rare', 'Warrior')
+    p.add_item(sword)
+    p.equip(sword)
+    p.upgrade_equipped('weapon')
+    upgraded = sword.stats['atk']
+    T.temper(p, sword, 'Hone')
+    assert sword.stats['atk'] > upgraded and sword.upgrade == 1
+    p.upgrade_equipped('weapon')
+    assert sword.upgrade == 2 and sword.temper == 'Hone'

@@ -39,6 +39,7 @@ ZONE_RESOURCES = {
 
 # ── Crafting recipes ──────────────────────────────────────────────────────────
 # output_type: "resource" → adds to player.resources
+#              "forge" → opens the Smithing workshop (trades.forge): choose weapon/armor + additive
 #              "weapon" / "armor" → generates item at level_param
 #              "consumable" → creates Item directly with effect/effect_value/effect_duration
 CRAFTING_RECIPES = {
@@ -49,12 +50,12 @@ CRAFTING_RECIPES = {
         {"name":"Mithril Bar",       "inputs":{"Mithril Ore":1,"Coal":2},        "output_type":"resource","output_name":"Mithril Bar",     "req":11, "xp":75},
         {"name":"Adamantite Bar",    "inputs":{"Adamantite Ore":1,"Coal":3},     "output_type":"resource","output_name":"Adamantite Bar",  "req":14, "xp":95},
         {"name":"Dragon Bar",        "inputs":{"Dragon Metal":2,"Coal":4},       "output_type":"resource","output_name":"Dragon Bar",      "req":18, "xp":120},
-        {"name":"Bronze Weapon",     "inputs":{"Bronze Bar":2},                  "output_type":"weapon",  "level_param":3,                "req":2,  "xp":35},
-        {"name":"Iron Weapon",       "inputs":{"Iron Bar":2},                    "output_type":"weapon",  "level_param":6,                "req":6,  "xp":60},
-        {"name":"Steel Weapon",      "inputs":{"Steel Bar":2},                   "output_type":"weapon",  "level_param":9,                "req":9,  "xp":80},
-        {"name":"Mithril Weapon",    "inputs":{"Mithril Bar":2},                 "output_type":"weapon",  "level_param":13,               "req":12, "xp":100},
-        {"name":"Adamantite Weapon", "inputs":{"Adamantite Bar":2},              "output_type":"weapon",  "level_param":17,               "req":15, "xp":125},
-        {"name":"Dragon Weapon",     "inputs":{"Dragon Bar":2},                  "output_type":"weapon",  "level_param":21,               "req":19, "xp":150},
+        {"name":"Bronze Gear",     "inputs":{"Bronze Bar":2},                  "output_type":"forge", "metal":"Bronze",   "req":2,  "xp":35},
+        {"name":"Iron Gear",       "inputs":{"Iron Bar":2},                    "output_type":"forge", "metal":"Iron",   "req":6,  "xp":60},
+        {"name":"Steel Gear",      "inputs":{"Steel Bar":2},                   "output_type":"forge", "metal":"Steel",   "req":9,  "xp":80},
+        {"name":"Mithril Gear",    "inputs":{"Mithril Bar":2},                 "output_type":"forge", "metal":"Mithril",   "req":12, "xp":100},
+        {"name":"Adamantite Gear", "inputs":{"Adamantite Bar":2},              "output_type":"forge", "metal":"Adamantite",   "req":15, "xp":125},
+        {"name":"Dragon Gear",     "inputs":{"Dragon Bar":2},                  "output_type":"forge", "metal":"Dragon",   "req":19, "xp":150},
     ],
     "Herblore": [
         {"name":"Attack Potion",  "inputs":{"Guam Leaf":1},                 "output_type":"consumable","effect":"temp_buff_str","effect_value":8, "effect_duration":3,"output_name":"Attack Potion",  "req":1, "xp":30},
@@ -93,7 +94,7 @@ TRADE_PROFESSIONS = {
     "Blacksmith": {
         "desc": "Mining & Smithing expert.",
         "bonus_skills": ["Mining", "Smithing"],
-        "perks": ["Masterwork: smithed gear comes out Rare instead of Uncommon.",
+        "perks": ["Masterwork: better forging odds (quality roll +10%).",
                   "Forgemaster: gear upgrades cost 30% less gold and one fewer bar."],
         "start_resources": {"Iron Ore": 5, "Coal": 3},
         "icon": "⚒",
@@ -205,6 +206,8 @@ def craft_item(player, skill_name, recipe_idx, player_class=None):
         return False, "Invalid recipe.", None
 
     recipe = recipes[recipe_idx]
+    if recipe["output_type"] == "forge":
+        return False, "Gear is made at the forge — open it from this recipe.", None
     skill_data = getattr(player, 'crafting_skills', {}).get(skill_name, {"level": 1, "xp": 0})
 
     if skill_data["level"] < recipe["req"]:

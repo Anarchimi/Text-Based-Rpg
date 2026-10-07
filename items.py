@@ -31,6 +31,19 @@ UPGRADE_BARS = {1: "Bronze Bar", 2: "Iron Bar", 3: "Steel Bar", 4: "Mithril Bar"
 UPGRADE_BAR_QTY = 2
 
 
+# Tempering (Smithing 15, crafted gear only, once per item): name -> (slot, multipliers, flat changes)
+TEMPERS = {
+    "Hone":          ("weapon", {"atk": 1.15}, {}),
+    "Reinforce":     ("armor",  {"def": 1.15}, {}),
+    "Heavy Plating": ("armor",  {"def": 1.30}, {"spd": -4}),
+}
+TEMPER_TEXT = {
+    "Hone": "+15% ATK",
+    "Reinforce": "+15% DEF",
+    "Heavy Plating": "+30% DEF, −4 SPD",
+}
+
+
 def upgrade_cost(item, player=None):
     """(gold, bar name, bar qty) for the next upgrade, or None at max. Blacksmiths pay less."""
     n = item.upgrade + 1
@@ -49,6 +62,10 @@ class Item:
     base_name = None
     legendary = None   # key of LEGENDARY_EFFECTS
     category = None    # "food" for cooked consumables (Fisher perk), else potion/other
+    crafted = False    # made at a workshop (trades.py) rather than looted/bought
+    material = None    # crafting material, e.g. "Steel" (forged) or "Yew" (fletched)
+    kind = None        # e.g. "Sword", "Plate", "Longbow" — what the crafted item actually is
+    temper = None      # one-time Tempering applied (TEMPERS key), crafted gear only
 
     def __init__(self, name, item_type, rarity, value, stats=None, effect=None, effect_value=0, effect_duration=0):
         self.name = name
@@ -68,6 +85,21 @@ class Item:
         self.stats = {k: max(v + self.upgrade, int(round(v * mult))) for k, v in self.base_stats.items()}
         self.name = f"{self.base_name} +{self.upgrade}"
         self.value = int(self.value * 1.25)
+
+    def apply_temper(self, name):
+        """One-time Tempering: reshapes the item's *base* stats, so +1…+5 upgrades build on it."""
+        _, mults, flat = TEMPERS[name]
+        base = self.base_stats if self.base_stats is not None else self.stats
+        for stat, m in mults.items():
+            if stat in base:
+                base[stat] = int(round(base[stat] * m))
+        for stat, v in flat.items():
+            base[stat] = base.get(stat, 0) + v
+        if self.base_stats is not None and self.upgrade:
+            mult = 1 + UPGRADE_STAT_GAIN * self.upgrade
+            self.stats = {k: max(v + self.upgrade, int(round(v * mult))) if v > 0 else v
+                          for k, v in self.base_stats.items()}
+        self.temper = name
 
     def stat_string(self):
         if not self.stats:
@@ -182,6 +214,42 @@ def generate_armor(level=1, rarity=None, player_class=None, luck=0):
     base_def = int((4 + level * 2) * mult)
     item = Item(name, "armor", rarity, int(base_def * 5 * mult), {"def": base_def})
     return _finish_gear(item, "armor", level, rarity, player_class)
+
+
+# ── Forged gear (Smithing workshop) ────────────────────────────────────────────
+# Each metal: (item level it forges at, sale value base, bonus trait per slot).
+METALS = {
+    "Bronze":     (3,  20,  {"weapon": {},                     "armor": {}}),
+    "Iron":       (6,  40,  {"weapon": {"main": 2},             "armor": {"vit": 2}}),
+    "Steel":      (9,  70,  {"weapon": {"main": 4},             "armor": {"vit": 4}}),
+    "Mithril":    (13, 120, {"weapon": {"spd": 4},             "armor": {"spd": 3}}),
+    "Adamantite": (17, 180, {"weapon": {"main": 6},             "armor": {"vit": 8, "spd": -2}}),
+    "Dragon":     (21, 260, {"weapon": {"main": 6, "hp": 20},   "armor": {"vit": 6, "hp": 40}}),
+}
+SMITHED_WEAPON = {"Warrior": "Sword", "Mage": "Scepter", "Rogue": "Dagger"}
+METAL_TRAIT_TEXT = {"Bronze": "basic", "Iron": "sturdy", "Steel": "strong (+main stat)", "Mithril": "light (+SPD)",
+                    "Adamantite": "heavy (+VIT, −SPD)", "Dragon": "dragonforged (+HP)"}
+
+
+def forge_item(slot, metal, rarity, player_class=None):
+    """A real smithed weapon or armor: base stat from the metal's level and the rolled quality
+    (rarity), plus the metal's trait and the usual bonus stats for that rarity."""
+    level, value_base, traits = METALS[metal]
+    mult = rarity_multiplier(rarity)
+    if slot == "weapon":
+        kind = SMITHED_WEAPON.get(player_class, "Sword")
+        stats = {"atk": int((5 + level * 2) * mult)}
+    else:
+        kind = "Plate"
+        stats = {"def": int((4 + level * 2) * mult)}
+    for stat, v in traits[slot].items():
+        stat = CLASS_MAIN_STAT.get(player_class, "str") if stat == "main" else stat  # weapons feed your class
+        stats[stat] = stats.get(stat, 0) + v
+    item = Item(f"{metal} {kind}", slot, rarity, 0, stats)
+    _finish_gear(item, slot, level, rarity, player_class)
+    item.crafted, item.material, item.kind = True, metal, kind
+    item.value = int(value_base * (1 + 0.25 * RARITIES.index(rarity)))  # material-based, not loot prices
+    return item
 
 
 def generate_accessory(level=1, rarity=None, player_class=None, luck=0):

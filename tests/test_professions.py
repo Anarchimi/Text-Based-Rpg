@@ -261,8 +261,14 @@ def test_every_trade_has_two_perks_and_no_name_clash_with_combat_professions():
         assert name not in combat_names, f'{name} is both a trade and a combat profession'
 
 
+def test_blacksmith_masterwork_improves_forging_odds():
+    import trades
+    recipe = next(r for r in CRAFTING_RECIPES['Smithing'] if r['name'] == 'Iron Gear')
+    smith, other = trader('Blacksmith'), trader('Alchemist')
+    assert trades.forge_shift(smith, recipe) == trades.forge_shift(other, recipe) + trades.MASTERWORK_SHIFT
+
+
 @pytest.mark.parametrize('trade,skill,recipe,inputs', [
-    ('Blacksmith', 'Smithing', 'Iron Weapon', {'Iron Bar': 2}),
     ('Fletcher', 'Fletching', 'Oak Shortbow', {'Oak Logs': 2}),
 ])
 def test_masterwork_crafts_rare_gear(trade, skill, recipe, inputs):

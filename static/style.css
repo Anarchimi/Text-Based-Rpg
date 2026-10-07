@@ -264,6 +264,10 @@
     .ms-done     { color: var(--green); }
     .ms-next     { color: var(--dim); }
     .path-trade  { border-color: var(--cyan); }
+    .node-title  { font-size: 16px; color: var(--yellow); margin-bottom: 6px; }
+    .node-text   { font-size: 13px; color: var(--text, #ddd); margin-bottom: 6px; }
+    .crafted-tag { color: var(--cyan); }
+    .odds span   { margin-right: 4px; }
     .path-fight  { border-color: var(--red); }
     .path-rest   { border-color: var(--green); }
     .path-story  { border-color: var(--yellow); }
