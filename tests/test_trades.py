@@ -15,7 +15,9 @@ TESTED_MILESTONES = {("Smithing", 5), ("Herblore", 5), ("Cooking", 5), ("Fletchi
                      ("Mining", 5), ("Mining", 10), ("Mining", 15), ("Mining", 20),
                      ("Smithing", 10), ("Smithing", 15), ("Smithing", 20),
                      ("Herbalism", 5), ("Herbalism", 10), ("Herbalism", 15), ("Herbalism", 20),
-                     ("Herblore", 10), ("Herblore", 15)}
+                     ("Herblore", 10), ("Herblore", 15),
+                     ("Fishing", 5), ("Fishing", 10), ("Fishing", 15), ("Fishing", 20),
+                     ("Cooking", 10), ("Cooking", 15)}
 
 
 def trader(trade, cls='Warrior', level=8, **skills):
@@ -502,3 +504,166 @@ def test_alchemy_bench_flow_through_the_web():
     page = client.post('/action', data={'action': 'alc_mix'}, follow_redirects=True).get_data(as_text=True)
     assert 'NEW RECIPE: Healing Draught' in page and 'value="alc_brew_Healing Draught"' in page
     assert 'Healing Draught' in pickle.load(open(path, 'rb'))['player'].alchemy_journal['recipes']
+
+
+# ── Phase 4: Fisher ────────────────────────────────────────────────────────────
+
+import combat
+from trades import MEALS, TEMPERAMENTS
+
+
+def fisher(**skills):
+    return trader('Fisher', **skills)
+
+
+def bite(p, zone=2, trait='heavy', fish=None):
+    node = T.make_bite_node(p, zone)
+    node['trait'] = trait
+    if fish:
+        node['fish'] = fish
+    return node
+
+
+def test_hard_bites_need_fishing_5_and_only_name_the_temperament_at_10():
+    assert T.make_bite_node(fisher(Fishing=4), 2) is None
+    for lv, named in ((5, False), (10, True)):
+        for _ in range(20):
+            node = T.make_bite_node(fisher(Fishing=lv), 2)
+            assert TEMPERAMENTS[node['trait']][0] in node['text']
+            assert (f"It's {node['trait']}" in node['text']) == named
+
+
+@pytest.mark.parametrize('trait', list(TEMPERAMENTS))
+def test_the_response_matters(trait, monkeypatch):
+    odds = TEMPERAMENTS[trait][1]
+    best = max(odds, key=odds.get)
+    worst = min(odds, key=odds.get)
+    for key, roll, landed in ((best, 0.8, True), (worst, 0.2, False)):
+        p = fisher(Fishing=5)
+        monkeypatch.setattr(T, 'random', FixedRandom(roll))
+        events = T.resolve_node(bite(p, trait=trait), key, p)
+        assert (sum(p.resources.values()) > 0) == landed, (trait, key)
+        if not landed:
+            assert 'got away' in events[0][2]
+
+
+def test_rare_fish_from_deeper_water_at_fishing_10(monkeypatch):
+    monkeypatch.setattr(T, 'random', FixedRandom(0.1))  # rare-fish roll passes (choice() takes the first trait)
+    assert T.make_bite_node(fisher(Fishing=10), 2)['fish'] == 'Raw Lobster'
+    monkeypatch.setattr(T, 'random', FixedRandom(0.1))
+    assert T.make_bite_node(fisher(Fishing=9), 2)['fish'] in ('Raw Trout', 'Raw Salmon')
+
+
+def test_trophies_need_fishing_15_and_the_best_response(monkeypatch):
+    def play(lv, key):
+        p = fisher(Fishing=lv)
+        node = bite(p, trait='heavy')
+        monkeypatch.setattr(T, 'random', FixedRandom(0.1, 0.1, 0.1))  # catch, (legendary no at <20), trophy yes
+        T.resolve_node(node, key, p)
+        return p
+    p = play(15, 'steady')
+    assert p.resources.get('Trophy Salmon') == 1 and p.trophies == {'Trophy Salmon': 1}
+    assert not play(14, 'steady').trophies
+    assert not play(15, 'reel').trophies, 'a merely adequate fight never lands a trophy'
+
+
+def test_first_trophy_pays_a_one_time_reward():
+    p = fisher(Fishing=15)
+    first = T._land_trophy(p, 'Voidfin')
+    second = T._land_trophy(p, 'Voidfin')
+    assert 'NEW TROPHY' in first[0][2] and 'NEW TROPHY' not in second[0][2] and p.trophies['Voidfin'] == 2
+
+
+def test_river_king_only_at_fishing_20(monkeypatch):
+    for lv, expected in ((19, None), (20, 1)):
+        p = fisher(Fishing=lv)
+        node = bite(p, trait='heavy')   # build before fixing the rolls
+        monkeypatch.setattr(T, 'random', FixedRandom(0.1, 0.05))
+        T.resolve_node(node, 'steady', p)
+        assert p.resources.get('Ashvale River King') == expected
+
+
+@pytest.mark.parametrize('trade,event,skill,level,node_type', [
+    ('Blacksmith', 'ore_vein', 'Mining', 5, 'vein'),
+    ('Alchemist', 'herb_patch', 'Herbalism', 10, 'patch'),
+    ('Fisher', 'hidden_pool', 'Fishing', 5, 'bite'),
+])
+def test_basic_trail_discoveries_become_nodes_at_their_milestone(trade, event, skill, level, node_type):
+    below = resolve_trade_event(event, trader(trade, **{skill: level - 1}), 2, 0)
+    assert below[0][0] == 'resource', 'before the milestone: a plain haul'
+    at = resolve_trade_event(event, trader(trade, **{skill: level}), 2, 0)
+    assert at[0][0] == 'node' and at[0][1]['type'] == node_type
+
+
+def _cook_meal(p, recipe_name, inputs):
+    p.resources.update(inputs)
+    idx = next(i for i, r in enumerate(CRAFTING_RECIPES['Cooking']) if r['name'] == recipe_name)
+    ok, msg, item = craft_item(p, 'Cooking', idx)
+    assert ok, msg
+    return item
+
+
+def test_meals_buff_for_several_fights_and_are_eaten_outside_combat():
+    p = fisher(Cooking=12)
+    stew = _cook_meal(p, 'Hearty Fish Stew', {'Raw Trout': 2, 'Raw Salmon': 1})
+    assert stew.category == 'meal' and stew not in p.combat_consumables()
+    vit = p.vit
+    ok, msg = p.use_consumable(stew)
+    assert ok and p.vit == vit + 8 and p.meal['fights'] == MEALS['Hearty Fish Stew']['fights']
+    for _ in range(MEALS['Hearty Fish Stew']['fights']):
+        combat.end_combat(p)
+    assert p.meal is None and p.vit == vit
+
+
+def test_spiced_swordfish_adds_crit():
+    p = fisher(Cooking=12)
+    item = _cook_meal(p, 'Spiced Swordfish', {'Raw Swordfish': 1, 'Raw Lobster': 1})
+    base = p.crit_bonus
+    p.use_consumable(item)
+    assert p.crit_bonus == pytest.approx(base + 0.08)
+
+
+def test_dragonfire_chowder_resists_debuffs(monkeypatch):
+    from conftest import make_enemy
+    p = fisher(Cooking=18)
+    p.use_consumable(_cook_meal(p, 'Dragonfire Chowder', {'Raw Dark Crab': 1, 'Raw Anglerfish': 1}))
+    e = make_enemy()
+    monkeypatch.setattr(combat.random, 'random', lambda: 0.1)
+    combat._enemy_ability(p, e, 'Poison Blade', combat.ability_spec('Poison Blade'), lambda k, t: None, False)
+    assert 'Poisoned' not in p.debuffs
+
+
+def test_trophy_feast_needs_cooking_10_and_slow_cooking_extends_meals():
+    p = fisher(Cooking=9)
+    p.resources['Trophy Salmon'] = 1
+    idx = next(i for i, r in enumerate(CRAFTING_RECIPES['Cooking']) if r['name'] == 'Trophy Feast (Salmon)')
+    assert not craft_item(p, 'Cooking', idx)[0]
+    for lv, extra in ((10, 0), (15, T.SLOW_COOKING_FIGHTS)):
+        q = fisher(Cooking=lv)
+        feast = _cook_meal(q, 'Trophy Feast (Salmon)', {'Trophy Salmon': 1})
+        q.use_consumable(feast)
+        assert q.meal['fights'] == MEALS['Trophy Feast']['fights'] + extra
+
+
+def test_meals_are_not_offered_in_combat_ui():
+    import app as game_app, os
+    from quests import QuestLog
+    from enemies import spawn_enemy
+    client = game_app.app.test_client()
+    client.get('/')
+    with client.session_transaction() as s:
+        sid = s['sid']
+    p = fisher(Cooking=12)
+    _cook_meal(p, 'Hearty Fish Stew', {'Raw Trout': 2, 'Raw Salmon': 1})
+    st = game_app.fresh_state()
+    st.update(player=p, quest_log=QuestLog(), screen='combat', combat_enemy=spawn_enemy(1, 1), combat_turn=1)
+    pickle.dump(st, open(os.path.join(game_app.SAVE_DIR, f'{sid}.pkl'), 'wb'))
+    page = client.get('/').get_data(as_text=True)
+    assert 'Hearty Fish Stew' not in page
+
+
+def test_old_saves_have_no_meal_or_trophies():
+    p = Player('T', 'Rogue')
+    del p.meal, p.trophies
+    q = pickle.loads(pickle.dumps(p))
+    assert q.meal is None and q.trophies == {} and q.meal_stat('vit') == 0

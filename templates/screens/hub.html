@@ -28,6 +28,7 @@
       <div class="meta-badge">DEF: <span>{{ p.defense|int }}</span></div>
       {% if p.trade_profession %}<div class="meta-badge">Trade: <span>{{ p.trade_profession }}</span></div>{% endif %}
       {% if state.ng_plus %}<div class="meta-badge" style="color:var(--yellow)">NG+{{ state.ng_plus }}</div>{% endif %}
+      {% if p.meal %}<div class="meta-badge" style="color:var(--cyan)">🍲 {{ p.meal.name }} ({{ p.meal.fights }} fights)</div>{% endif %}
       {% for buff_name in p.buffs %}<div class="meta-badge" style="color:var(--green)">{{ buff_name }}({{ p.buffs[buff_name] }}t)</div>{% endfor %}
     </div>
   </div>

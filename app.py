@@ -228,6 +228,8 @@ def special_node_for(player, zone, skill):
         return trades.make_vein_node(player, zone)
     if skill == 'Herbalism' and random.random() < trades.PATCH_CHANCE:
         return trades.make_patch_node(player, zone)
+    if skill == 'Fishing' and random.random() < trades.BITE_CHANCE:
+        return trades.make_bite_node(player, zone)
     return None
 
 

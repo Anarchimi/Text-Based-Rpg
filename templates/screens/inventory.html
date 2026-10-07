@@ -77,7 +77,7 @@
     <div class="item-row">
       <div class="item-info">
         <div class="item-name">{{ item.name }}</div>
-        <div class="item-meta">{{ item.effect | replace('_', ' ') }} · Worth {{ item.value }}g</div>
+        <div class="item-meta">{% if item.category == 'meal' %}🍲 Meal · {{ trades.meal_text(item.meal) }} · eat before a fight{% else %}{{ item.effect | replace('_', ' ') }}{% endif %} · Worth {{ item.value }}g</div>
       </div>
       <div class="item-actions">
         <form method="post" action="/action">

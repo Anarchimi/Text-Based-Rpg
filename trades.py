@@ -58,6 +58,13 @@ def _zone_res(zone, skill):
 BASIC_DISCOVERY_SKILL = {"ore_vein": "Mining", "herb_patch": "Herbalism",
                          "hidden_pool": "Fishing", "fallen_tree": "Woodcutting"}
 
+# Basic discovery -> (node builder, intro) once its milestone is reached (builders defined below).
+DISCOVERY_NODES = {
+    "ore_vein":    ("make_vein_node", "You find an exposed vein."),
+    "herb_patch":  ("make_patch_node", "You find a lush herb patch."),
+    "hidden_pool": ("make_bite_node", "Something big moves in the pool."),
+}
+
 ZONE_BAR = {1: "Bronze Bar", 2: "Iron Bar", 3: "Steel Bar", 4: "Mithril Bar", 5: "Adamantite Bar"}
 
 PROFESSION_EVENTS = {
@@ -115,10 +122,12 @@ def resolve_trade_event(event_id, player, zone, depth):
     """Outcome tuples in the explore event format (see world.resolve_option)."""
     from items import Item, generate_armor, generate_weapon
     lvl = player.level
-    if event_id == "ore_vein":
-        node = make_vein_node(player, zone)
-        if node:  # Ore Sense: the find becomes a vein you choose how to work
-            return [("node", node, "You find an exposed vein.")]
+    if event_id in DISCOVERY_NODES:
+        # Once the gathering milestone is reached, the basic find becomes an interactive node.
+        builder, intro = DISCOVERY_NODES[event_id]
+        node = globals()[builder](player, zone)
+        if node:
+            return [("node", node, intro)]
     if event_id in BASIC_DISCOVERY_SKILL:
         skill = BASIC_DISCOVERY_SKILL[event_id]
         got = [_grant(player, random.choice(_zone_res(zone, skill)), 1) for _ in range(random.randint(3, 5))]
@@ -126,10 +135,6 @@ def resolve_trade_event(event_id, player, zone, depth):
         return [("resource", 0, f"You harvest the find: {', '.join(got)} (+{20 + 5 * zone} {skill} XP)")]
     if event_id == "remains":
         return _resolve_remains(player, zone)
-    if event_id == "herb_patch":
-        node = make_patch_node(player, zone)
-        if node:  # Rare Patches: the find becomes a patch you choose how to harvest
-            return [("node", node, "You find a lush herb patch.")]
     if event_id == "salvage":
         msg = f"You pick through the wreckage: {_grant(player, ZONE_BAR[zone], random.randint(1, 3))}"
         events = [("resource", 0, msg)]
@@ -587,3 +592,113 @@ def _resolve_remains(player, zone):
     reagent = random.choice(list(MONSTER_REAGENTS))
     player.add_resource(reagent, 1)
     return [("resource", 0, f"You carefully harvest 1× {reagent} from the remains.")]
+
+
+# ── Fisher: hard bites, trophies, meals ────────────────────────────────────────
+BITE_CHANCE = 0.15
+TEMPERAMENTS = {
+    # trait: (cue shown to everyone, {response: success chance})
+    "aggressive": ("The line jerks violently from side to side!",  {"tire": 0.9, "steady": 0.5, "reel": 0.15}),
+    "heavy":      ("Something heavy drags the line straight down.", {"steady": 0.9, "reel": 0.5, "tire": 0.15}),
+    "elusive":    ("The line goes slack — then darts away.",        {"reel": 0.9, "tire": 0.5, "steady": 0.15}),
+}
+RESPONSES = {"reel": "🎣 Reel aggressively", "tire": "⏳ Let it tire", "steady": "🪢 Keep steady tension"}
+TROPHY_FISH = {1: "Large Trout", 2: "Trophy Salmon", 3: "Ancient Golden Trout", 4: "Voidfin", 5: "Voidfin"}
+LEGENDARY_FISH = "Ashvale River King"
+TROPHY_CHANCE, LEGENDARY_CHANCE = 0.35, 0.10
+
+TRADE_MILESTONES.setdefault("Fishing", {}).update({
+    5:  ("Hard Bites", "Strong fish can take the line while fishing: read the cue and choose how to fight it."),
+    10: ("Read the Water", "See a hooked fish's temperament outright, and hook rarer fish from deeper waters."),
+    15: ("Trophy Fish", "A well-played catch can land a trophy fish for your catch log and a feast."),
+    20: ("Legendary Catches", "The Ashvale River King can take your line."),
+})
+TRADE_MILESTONES["Cooking"].update({
+    10: ("Trophy Feasts", "Cook trophy fish into feasts: all stats up for many fights."),
+    15: ("Slow Cooking", "Meals you eat last 2 more fights."),
+})
+
+
+def _zone_fish(player, zone):
+    from crafting import ZONE_RESOURCES
+    lv = skill_level(player, "Fishing")
+    return [n for n, _, req in ZONE_RESOURCES.get(zone, {}).get("Fishing", []) if lv >= req]
+
+
+def make_bite_node(player, zone):
+    fish = _zone_fish(player, zone)
+    if not fish or not has_milestone(player, "Fishing", 5):
+        return None
+    trait = random.choice(list(TEMPERAMENTS))
+    if has_milestone(player, "Fishing", 10) and zone < 5 and random.random() < 0.4:
+        fish = _zone_res(zone + 1, "Fishing")[:1]   # a rarer fish from deeper water
+    cue, _ = TEMPERAMENTS[trait]
+    text = cue + (f" It's {trait}." if has_milestone(player, "Fishing", 10) else "")
+    return {"type": "bite", "zone": zone, "fish": fish[0], "trait": trait,
+            "trophy": has_milestone(player, "Fishing", 15), "legendary": has_milestone(player, "Fishing", 20),
+            "title": "Something big is on the line!", "text": text,
+            "options": [{"key": k, "label": label, "detail": ""} for k, label in RESPONSES.items()]
+                       + [{"key": "leave", "label": "✂ Cut the line", "detail": ""}]}
+
+
+def _resolve_bite(node, key, player):
+    _, odds = TEMPERAMENTS[node["trait"]]
+    zone, fish = node["zone"], node["fish"]
+    if random.random() >= odds[key]:
+        player.gain_skill_xp("gathering", "Fishing", 15)
+        return [("nothing", 0, f"The line snaps — it was {node['trait']}, and it got away. (+15 Fishing XP)")]
+    qty = random.randint(2, 3)
+    player.add_resource(fish, qty)
+    xp = 50 + 10 * zone
+    caught = [f"{qty}× {fish}"]
+    best = odds[key] == max(odds.values())
+    events = []
+    if best and node.get("legendary") and random.random() < LEGENDARY_CHANCE:
+        events += _land_trophy(player, LEGENDARY_FISH)
+        caught.append(LEGENDARY_FISH)
+    elif best and node.get("trophy") and random.random() < TROPHY_CHANCE:
+        events += _land_trophy(player, TROPHY_FISH[zone])
+        caught.append(TROPHY_FISH[zone])
+    player.gain_skill_xp("gathering", "Fishing", xp)
+    return [("resource", 0, f"You land it: {', '.join(caught)} (+{xp} Fishing XP)")] + events
+
+
+def _land_trophy(player, name):
+    player.add_resource(name, 1)
+    first = name not in player.trophies
+    player.trophies[name] = player.trophies.get(name, 0) + 1
+    if first:
+        player.gain_skill_xp("gathering", "Fishing", 150)
+        return [("resource", 0, f"🏆 NEW TROPHY: {name}! Recorded in your catch log. (+150 Fishing XP)")]
+    return [("resource", 0, f"🏆 Another {name} for the log ({player.trophies[name]} caught).")]
+
+
+NODE_RESOLVERS["bite"] = _resolve_bite
+
+# Meals: eaten outside combat, one at a time, last several fights (decremented in combat.end_combat).
+#   stats: flat stat bonuses (str/dex/int/vit/lck/crit), resist: chance to shrug off a debuff
+MEALS = {
+    "Hearty Fish Stew":   {"stats": {"vit": 8},  "fights": 4},
+    "Spiced Swordfish":   {"stats": {"crit": 8}, "fights": 4},
+    "Dragonfire Chowder": {"stats": {"vit": 6},  "fights": 4, "resist": 0.5},
+    "Trophy Feast":       {"stats": {"str": 6, "dex": 6, "int": 6, "vit": 6}, "fights": 6},
+    "River King Feast":   {"stats": {"str": 10, "dex": 10, "int": 10, "vit": 10}, "fights": 8, "resist": 0.3},
+}
+SLOW_COOKING_FIGHTS = 2
+
+
+def meal_text(name):
+    m = MEALS[name]
+    parts = [f"+{v}{'%' if k == 'crit' else ''} {k.upper()}" for k, v in m["stats"].items()]
+    if m.get("resist"):
+        parts.append(f"{int(m['resist'] * 100)}% debuff resist")
+    return ", ".join(parts) + f" for {m['fights']} fights"
+
+
+def eat_meal(player, item):
+    m = MEALS[item.meal]
+    fights = m["fights"] + (SLOW_COOKING_FIGHTS if has_milestone(player, "Cooking", 15) else 0)
+    replaced = player.meal["name"] if player.meal else None
+    player.meal = {"name": item.meal, "stats": dict(m["stats"]), "resist": m.get("resist", 0), "fights": fights}
+    return f"You eat the {item.name}: {meal_text(item.meal).rsplit(' for ', 1)[0]} for {fights} fights." + (
+        f" (Replaces {replaced}.)" if replaced else "")

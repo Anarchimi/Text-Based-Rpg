@@ -64,6 +64,10 @@ def end_combat(player):
     player.second_wind_used = False
     player.momentum = 0
     player.deathless_used = False
+    if player.meal:  # meals last a number of fights
+        player.meal["fights"] -= 1
+        if player.meal["fights"] <= 0:
+            player.meal = None
 
 
 def defend_reduction(player):
@@ -328,7 +332,10 @@ def _enemy_ability(player, enemy, name, spec, clog, defending):
         enemy.hp += healed
         if healed:
             clog('enemy', f'{enemy.name} drains {healed} HP from you!')
-    elif kind == 'dot':
+    if kind in ('dot', 'weaken', 'stun') and player.meal and random.random() < player.meal.get('resist', 0):
+        clog('buff', f"Your {player.meal['name']} steadies you — you resist the effect!")
+        return
+    if kind == 'dot':
         status = spec['status']
         tick = max(1, int(enemy.effective_atk * spec.get('dot', 0.25)))
         player.add_debuff(status, turns + 1, tick)
@@ -433,7 +440,7 @@ def do_combat_turn(state, action, ability_idx=None, item_idx=None):
             if not _player_ability(player, enemy, abilities[ability_idx], clog):
                 return 'continue'
     elif action == 'item' and item_idx is not None:
-        consumables = [i for i in player.inventory if i.item_type == 'consumable']
+        consumables = player.combat_consumables()
         if 0 <= item_idx < len(consumables):
             ok, text = player.use_consumable(consumables[item_idx])
             clog('heal' if ok else 'danger', text)

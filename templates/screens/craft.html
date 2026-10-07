@@ -56,6 +56,7 @@
         Req Lv {{ recipe.req }} · +{{ recipe.xp }} XP ·
         {% if recipe.output_type == 'resource' %}→ {{ recipe.output_name }}
         {% elif recipe.output_type == 'consumable' %}→ {{ recipe.output_name }}
+        {% elif recipe.output_type == 'meal' %}→ 🍲 {{ trades.meal_text(recipe.output_name) }}
         {% elif recipe.output_type == 'forge' %}→ {{ recipe.metal }} weapon or armor at the forge
         {% elif recipe.output_type == 'weapon' %}→ Weapon (Lv {{ recipe.level_param }})
         {% elif recipe.output_type == 'armor' %}→ Armor (Lv {{ recipe.level_param }})

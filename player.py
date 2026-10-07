@@ -193,6 +193,8 @@ class Player:
         self.deathless_used     = False  # Necromancer "Deathless" perk, once per fight
         self.unlock_log         = []     # trade milestone messages not yet shown
         self.alchemy_journal    = {"recipes": {}, "hints": {}}  # recipes: name -> (ingr, ingr); hints: name -> text
+        self.trophies           = {}     # Fisher catch log: trophy fish name -> count
+        self.meal               = None   # active meal: {name, stats, resist, fights} (trades.MEALS)
         self.trade_specialization = None # reserved for trade specializations (not chosen yet)
 
         # Trade / gathering professions
@@ -223,30 +225,37 @@ class Player:
 
     @property
     def crit_bonus(self):
-        return self.gear_stat("crit") / 100
+        return (self.gear_stat("crit") + self.meal_stat("crit")) / 100
+
+    def meal_stat(self, stat):
+        return self.meal["stats"].get(stat, 0) if self.meal else 0
+
+    def combat_consumables(self):
+        """Consumables usable mid-fight (meals are eaten before a fight, not during it)."""
+        return [i for i in self.inventory if i.item_type == "consumable" and i.category != "meal"]
 
     def _temp(self, stat):
         return sum(b["amount"] for b in self.temp_buffs if b["stat"] in (stat, "all"))
 
     @property
     def str(self):
-        return self.base_str + self.skill_bonus("str") + self.gear_stat("str") + self._temp("str")
+        return self.base_str + self.skill_bonus("str") + self.gear_stat("str") + self._temp("str") + self.meal_stat("str")
 
     @property
     def dex(self):
-        return self.base_dex + self.skill_bonus("dex") + self.gear_stat("dex")
+        return self.base_dex + self.skill_bonus("dex") + self.gear_stat("dex") + self.meal_stat("dex")
 
     @property
     def int(self):
-        return self.base_int + self.skill_bonus("int") + self.gear_stat("int")
+        return self.base_int + self.skill_bonus("int") + self.gear_stat("int") + self.meal_stat("int")
 
     @property
     def vit(self):
-        return self.base_vit + self.skill_bonus("vit") + self.gear_stat("vit") + self._temp("vit")
+        return self.base_vit + self.skill_bonus("vit") + self.gear_stat("vit") + self._temp("vit") + self.meal_stat("vit")
 
     @property
     def lck(self):
-        return self.base_lck + self.skill_bonus("lck") + self.gear_stat("lck")
+        return self.base_lck + self.skill_bonus("lck") + self.gear_stat("lck") + self.meal_stat("lck")
 
     @property
     def attack(self):
@@ -496,6 +505,9 @@ class Player:
             self.dot_dmg = 0
             self.debuffs.clear()
             msg = "Cured all status effects!"
+        elif eff == "meal":
+            from trades import eat_meal
+            msg = eat_meal(self, item)
         elif eff == "revive":
             # Used to delete the feather while claiming to save it.
             return False, "A Phoenix Feather works by itself: it revives you automatically if you fall."
@@ -571,6 +583,8 @@ class Player:
         d.setdefault("deathless_used", False)
         d.setdefault("unlock_log", [])
         d.setdefault("alchemy_journal", {"recipes": {}, "hints": {}})
+        d.setdefault("trophies", {})
+        d.setdefault("meal", None)
         d.setdefault("trade_specialization", None)
         if d.get("trade_profession") == "Ranger":  # renamed to avoid clashing with the Rogue's Ranger
             d["trade_profession"] = "Fletcher"

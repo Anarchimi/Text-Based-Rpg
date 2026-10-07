@@ -74,7 +74,16 @@ CRAFTING_RECIPES = {
         {"name":"Cooked Lobster",   "inputs":{"Raw Lobster":1},   "output_type":"consumable","effect":"heal_pct","effect_value":40,"output_name":"Cooked Lobster",   "req":12,"xp":55},
         {"name":"Cooked Swordfish", "inputs":{"Raw Swordfish":1}, "output_type":"consumable","effect":"heal_pct","effect_value":50,"output_name":"Cooked Swordfish", "req":14,"xp":65},
         {"name":"Cooked Shark",     "inputs":{"Raw Shark":1},     "output_type":"consumable","effect":"heal_pct","effect_value":65,"output_name":"Cooked Shark",     "req":16,"xp":80},
+        {"name":"Cooked Monkfish",  "inputs":{"Raw Monkfish":1},  "output_type":"consumable","effect":"heal_pct","effect_value":45,"output_name":"Cooked Monkfish",  "req":13,"xp":60},
         {"name":"Cooked Anglerfish","inputs":{"Raw Anglerfish":1},"output_type":"consumable","effect":"heal_pct","effect_value":90,"output_name":"Cooked Anglerfish","req":18,"xp":100},
+        {"name":"Hearty Fish Stew",  "inputs":{"Raw Trout":2,"Raw Salmon":1},       "output_type":"meal","output_name":"Hearty Fish Stew",  "req":7, "xp":70},
+        {"name":"Spiced Swordfish",  "inputs":{"Raw Swordfish":1,"Raw Lobster":1},  "output_type":"meal","output_name":"Spiced Swordfish",  "req":12,"xp":90},
+        {"name":"Dragonfire Chowder","inputs":{"Raw Dark Crab":1,"Raw Anglerfish":1},"output_type":"meal","output_name":"Dragonfire Chowder","req":18,"xp":120},
+        {"name":"Trophy Feast (Trout)",  "inputs":{"Large Trout":1},         "output_type":"meal","output_name":"Trophy Feast","req":10,"xp":100},
+        {"name":"Trophy Feast (Salmon)", "inputs":{"Trophy Salmon":1},       "output_type":"meal","output_name":"Trophy Feast","req":10,"xp":100},
+        {"name":"Trophy Feast (Golden)", "inputs":{"Ancient Golden Trout":1},"output_type":"meal","output_name":"Trophy Feast","req":10,"xp":100},
+        {"name":"Trophy Feast (Voidfin)","inputs":{"Voidfin":1},             "output_type":"meal","output_name":"Trophy Feast","req":10,"xp":100},
+        {"name":"River King Feast",      "inputs":{"Ashvale River King":1},  "output_type":"meal","output_name":"River King Feast","req":10,"xp":200},
         {"name":"Dark Crab Meat",   "inputs":{"Raw Dark Crab":1}, "output_type":"consumable","effect":"heal_overheal","effect_value":80,"output_name":"Dark Crab Meat","req":19,"xp":100},
     ],
     "Fletching": [
@@ -242,6 +251,13 @@ def craft_item(player, skill_name, recipe_idx, player_class=None):
         item.name = f"Crafted {recipe['name']}"
         player.add_item(item)
         return True, f"Crafted {item.name}! (+{raw_xp} XP){lv_msg}", item
+
+    if out_type == "meal":
+        from trades import MEALS, meal_text
+        item = Item(recipe["output_name"], "consumable", "Common", 40, effect="meal")
+        item.category, item.meal = "meal", recipe["output_name"]
+        player.add_item(item)
+        return True, f"Cooked {item.name}: {meal_text(item.meal)}. Eat it before a fight. (+{raw_xp} XP){lv_msg}", item
 
     if out_type == "consumable":
         eff     = recipe["effect"]

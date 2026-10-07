@@ -38,6 +38,9 @@
         <div class="bar-nums" style="color:var(--cyan);font-size:10px;">{{ xp_in_lv }}/{{ xp_need }}</div>
       </div>
       {{ milestones(p, skill_name) }}
+      {% if skill_name == 'Fishing' and p.trophies %}
+      <div class="milestones">🏆 Catch log: {% for f, n in p.trophies.items() %}{{ f }} ×{{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</div>
+      {% endif %}
       {% if zone_skill_res %}
       <div class="gather-resources-list">
         {% for res_name, wt, req_lv in zone_skill_res %}

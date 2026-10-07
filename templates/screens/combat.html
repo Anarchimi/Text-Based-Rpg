@@ -19,8 +19,9 @@
       <div class="bar-track"><div class="bar-fill bar-mp" style="width:{{ mp_pct }}%"></div></div>
       <div class="bar-nums" style="color:var(--blue)">{{ p.mp }}/{{ p.max_mp }}</div>
     </div>
-    {% if p.buffs or p.temp_buffs or p.debuffs %}
+    {% if p.buffs or p.temp_buffs or p.debuffs or p.meal %}
     <div class="status-meta">
+      {% if p.meal %}<div class="meta-badge" style="color:var(--cyan)">🍲 {{ p.meal.name }}</div>{% endif %}
       {% for b in p.buffs %}<div class="meta-badge" style="color:var(--green)">{{ b }}({{ p.buffs[b] }}t)</div>{% endfor %}
       {% for tb in p.temp_buffs %}<div class="meta-badge" style="color:var(--green)">{{ tb.stat | upper }}+{{ tb.amount }}({{ tb.turns }}t)</div>{% endfor %}
       {% for name, d in p.debuffs.items() %}<div class="meta-badge" style="color:var(--{{ 'yellow' if name == 'Stunned' else 'purple' }})">{{ name | upper }}{% if d.dmg %} {{ d.dmg }}/t{% endif %}{% if name != 'Stunned' %}({{ d.turns }}t){% endif %}</div>{% endfor %}
@@ -54,7 +55,7 @@
   </div>
 
   {% set abilities = p.get_abilities() %}
-  {% set consumables = p.inventory | selectattr('item_type', 'eq', 'consumable') | list %}
+  {% set consumables = p.combat_consumables() %}
 
   <form method="post" action="/action">
     <button class="btn-cyan" name="action" value="attack">⚔ Attack</button>

@@ -66,6 +66,7 @@ class Item:
     material = None    # crafting material, e.g. "Steel" (forged) or "Yew" (fletched)
     kind = None        # e.g. "Sword", "Plate", "Longbow" — what the crafted item actually is
     temper = None      # one-time Tempering applied (TEMPERS key), crafted gear only
+    meal = None        # MEALS key for cooked meals (category "meal")
 
     def __init__(self, name, item_type, rarity, value, stats=None, effect=None, effect_value=0, effect_duration=0):
         self.name = name
