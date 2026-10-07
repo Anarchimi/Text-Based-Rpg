@@ -186,6 +186,16 @@ def check_profession_unlock(state, player, fallback_screen):
 
 # ── Exploring ─────────────────────────────────────────────────────────────────
 
+def inn_prices(player):
+    """(full rest, nap) in gold. Scales with level and with how much HP *and* MP is missing."""
+    missing = (player.max_hp - player.hp) // 8 + (player.max_mp - player.mp) // 8
+    full = 10 + player.level * 6 + missing
+    return full, max(5, int(full * 0.4))
+
+
+app.jinja_env.globals['inn_prices'] = inn_prices
+
+
 def reset_depth(state):
     """Resting or leaving the zone ends the trail; offered paths re-roll for the new depth."""
     if state.get('depth'):
@@ -595,28 +605,27 @@ def action():
                     add_msg(state, 'danger', 'Not enough gold!')
 
     elif screen == 'inn':
-        player    = state['player']
-        hp_missing = player.max_hp - player.hp
-        cost = (hp_missing // 10) * 3 + 5
+        player = state['player']
+        full_cost, nap_cost = inn_prices(player)
         if act == 'back':
             state['screen'] = 'hub'
             clear_msgs(state)
-        elif act == 'full_rest':
-            if player.gold >= cost:
-                player.gold -= cost
-                player.hp = player.max_hp
-                player.mp = player.max_mp
-                player.dot = 0
-                add_msg(state, 'success', 'You rest well. HP and MP fully restored!')
-                reset_depth(state)
+        elif act in ('full_rest', 'nap'):
+            cost = full_cost if act == 'full_rest' else nap_cost
+            if player.hp >= player.max_hp and player.mp >= player.max_mp:
+                add_msg(state, 'dim', "You're already fully rested.")
+            elif player.gold < cost:
+                add_msg(state, 'danger', f'Not enough gold! ({cost}g)')
             else:
-                add_msg(state, 'danger', 'Not enough gold!')
-        elif act == 'nap':
-            player.hp = min(player.max_hp, player.hp + player.max_hp // 2)
-            player.mp = min(player.max_mp, player.mp + player.max_mp // 2)
-            player.dot = 0
-            add_msg(state, 'success', 'You take a short nap. HP/MP partially restored.')
-            reset_depth(state)
+                player.gold -= cost
+                if act == 'full_rest':
+                    player.hp, player.mp = player.max_hp, player.max_mp
+                    add_msg(state, 'success', f'You rest well. HP and MP fully restored! (-{cost}g)')
+                else:
+                    player.hp = min(player.max_hp, player.hp + player.max_hp // 2)
+                    player.mp = min(player.max_mp, player.mp + player.max_mp // 2)
+                    add_msg(state, 'success', f'You take a short nap. HP/MP partially restored. (-{cost}g)')
+                reset_depth(state)
 
     elif screen == 'quest_board':
         quest_log = state['quest_log']

@@ -138,7 +138,9 @@ def test_taking_paths_deepens_the_trail_and_resting_resets_it(monkeypatch):
 
 def test_inn_and_travel_reset_depth():
     for leave in ({'action': 'inn'}, {'action': 'world_map'}):
-        client, path = _client_with(_state(depth=6))
+        st = _state(depth=6)
+        st['player'].hp, st['player'].gold = 100, 1000  # hurt and able to pay for a nap
+        client, path = _client_with(st)
         client.post('/action', data=leave)
         follow = {'action': 'nap'} if leave['action'] == 'inn' else {'action': 'travel_1'}
         client.post('/action', data=follow)
@@ -181,3 +183,41 @@ def test_fight_preview_warns_about_stronger_enemies():
     tough.level = 12
     assert '⚠' in describe_option({'kind': 'fight', 'enemy': tough}, 2, player_level=8)[1]
     assert '⚠' not in describe_option({'kind': 'fight', 'enemy': tough}, 2, player_level=12)[1]
+
+
+def test_inn_costs_gold_and_scales_with_level_and_missing_mp():
+    lvl1, lvl15 = _player(level=1), _player(level=15)
+    for p in (lvl1, lvl15):
+        p.hp = p.max_hp // 2
+    assert game_app.inn_prices(lvl15)[0] > game_app.inn_prices(lvl1)[0]
+    p = _player()
+    before = game_app.inn_prices(p)[0]
+    p.mp = 0
+    assert game_app.inn_prices(p)[0] > before, 'missing MP is no longer free'
+    full, nap = game_app.inn_prices(p)
+    assert 0 < nap < full
+
+
+def test_nap_charges_gold_and_refuses_when_broke_or_full():
+    st = _state()
+    p = st['player']
+    p.hp, p.gold = 100, 1000
+    client, path = _client_with(st)
+    client.post('/action', data={'action': 'inn'})
+    client.post('/action', data={'action': 'nap'})
+    after = pickle.load(open(path, 'rb'))['player']
+    assert after.gold < 1000 and after.hp > 100
+
+    st = _state()
+    st['player'].hp, st['player'].gold = 100, 0
+    client, path = _client_with(st)
+    client.post('/action', data={'action': 'inn'})
+    client.post('/action', data={'action': 'nap'})
+    assert pickle.load(open(path, 'rb'))['player'].hp == 100
+
+    st = _state()
+    st['player'].gold = 500  # full HP/MP
+    client, path = _client_with(st)
+    client.post('/action', data={'action': 'inn'})
+    client.post('/action', data={'action': 'full_rest'})
+    assert pickle.load(open(path, 'rb'))['player'].gold == 500
