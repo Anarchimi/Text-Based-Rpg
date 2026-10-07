@@ -31,12 +31,15 @@ UPGRADE_BARS = {1: "Bronze Bar", 2: "Iron Bar", 3: "Steel Bar", 4: "Mithril Bar"
 UPGRADE_BAR_QTY = 2
 
 
-def upgrade_cost(item):
-    """(gold, bar name, bar qty) for the next upgrade, or None at max."""
+def upgrade_cost(item, player=None):
+    """(gold, bar name, bar qty) for the next upgrade, or None at max. Blacksmiths pay less."""
     n = item.upgrade + 1
     if item.item_type not in GEAR_SLOTS or n > UPGRADE_MAX:
         return None
-    return 60 * n * n, UPGRADE_BARS[n], UPGRADE_BAR_QTY
+    gold, qty = 60 * n * n, UPGRADE_BAR_QTY
+    if player is not None and getattr(player, "trade_profession", None) == "Blacksmith":
+        gold, qty = int(gold * 0.7), max(1, qty - 1)
+    return gold, UPGRADE_BARS[n], qty
 
 
 class Item:
@@ -45,6 +48,7 @@ class Item:
     base_stats = None
     base_name = None
     legendary = None   # key of LEGENDARY_EFFECTS
+    category = None    # "food" for cooked consumables (Fisher perk), else potion/other
 
     def __init__(self, name, item_type, rarity, value, stats=None, effect=None, effect_value=0, effect_duration=0):
         self.name = name

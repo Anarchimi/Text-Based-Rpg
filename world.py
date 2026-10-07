@@ -108,6 +108,8 @@ def generate_explore_options(player, zone_id, triggered_events, depth, ng=0):
         if kind == "treasure":
             opt["spot"] = random.choice(TREASURE_SPOTS)
             opt["trap_pct"] = depth_effects(depth)["trap_pct"]
+            if player.trade_profession == "Fletcher":  # Woodsman's Eye
+                opt["trap_pct"] //= 2
         elif kind == "forage":
             opt["skill"] = random.choice(_forage_skills(player, zone_id))
         options.append(opt)
@@ -179,6 +181,9 @@ def resolve_option(opt, player, zone_id, triggered_events, depth):
         if not got:
             return [("nothing", 0, "You find nothing worth taking.")]
         res, qty, xp, up = got
+        if player.trade_profession == "Fletcher":  # Woodsman's Eye
+            player.add_resource(res, 1)
+            qty += 1
         return [("resource", 0, f"You gather {qty}× {res} (+{xp} {opt['skill']} XP)"
                                 + (f" ★ {opt['skill']} leveled up!" if up else ""))]
     if kind == "shrine":

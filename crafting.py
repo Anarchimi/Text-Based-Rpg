@@ -87,32 +87,45 @@ CRAFTING_RECIPES = {
 }
 
 # ── Trade professions ─────────────────────────────────────────────────────────
+# Each trade: +50% XP in its two skills, a crafting perk and a perk outside crafting.
+# Perk logic: craft_item() here, Player.use_consumable / items.upgrade_cost, world.py trail.
 TRADE_PROFESSIONS = {
     "Blacksmith": {
-        "desc": "Expert in Mining & Smithing. +50% gathering/crafting XP for those skills. Start with iron ores.",
+        "desc": "Mining & Smithing expert.",
         "bonus_skills": ["Mining", "Smithing"],
+        "perks": ["Masterwork: smithed gear comes out Rare instead of Uncommon.",
+                  "Forgemaster: gear upgrades cost 30% less gold and one fewer bar."],
         "start_resources": {"Iron Ore": 5, "Coal": 3},
         "icon": "⚒",
     },
     "Alchemist": {
-        "desc": "Master herbalist & brewer. +50% XP for Herbalism & Herblore. Start with herbs.",
+        "desc": "Herbalism & Herblore master.",
         "bonus_skills": ["Herbalism", "Herblore"],
+        "perks": ["Double Brew: 30% chance to brew two potions.",
+                  "Potency: potions you drink are 50% stronger."],
         "start_resources": {"Guam Leaf": 5, "Marrentill": 3},
         "icon": "⚗",
     },
     "Fisher": {
-        "desc": "Skilled angler & cook. +50% XP for Fishing & Cooking. Start with fresh fish.",
+        "desc": "Fishing & Cooking specialist.",
         "bonus_skills": ["Fishing", "Cooking"],
+        "perks": ["Big Catch: 30% chance to cook two meals.",
+                  "Hearty Meals: food heals 50% more and restores MP too."],
         "start_resources": {"Raw Trout": 5},
         "icon": "🎣",
     },
-    "Ranger": {
-        "desc": "Woodsman & fletcher. +50% XP for Woodcutting & Fletching. Start with oak logs.",
+    "Fletcher": {
+        "desc": "Woodcutting & Fletching woodsman.",
         "bonus_skills": ["Woodcutting", "Fletching"],
+        "perks": ["Masterwork: fletched bows and staves come out Rare.",
+                  "Woodsman's Eye: on the trail, foraging yields +1 and treasure traps are half as likely."],
         "start_resources": {"Oak Logs": 5, "Normal Logs": 3},
         "icon": "🏹",
     },
 }
+MASTERWORK_SKILLS = {"Blacksmith": "Smithing", "Fletcher": "Fletching"}
+DOUBLE_CRAFT_SKILLS = {"Alchemist": "Herblore", "Fisher": "Cooking"}
+DOUBLE_CRAFT_CHANCE = 0.30
 
 GATHERING_SKILLS = ["Mining", "Woodcutting", "Fishing", "Herbalism"]
 CRAFTING_SKILLS  = ["Smithing", "Fletching", "Cooking", "Herblore"]
@@ -218,10 +231,11 @@ def craft_item(player, skill_name, recipe_idx, player_class=None):
 
     if out_type in ("weapon", "armor"):
         pc = player_class or getattr(player, 'player_class', None)
+        rarity = "Rare" if MASTERWORK_SKILLS.get(tp) == skill_name else "Uncommon"
         if out_type == "weapon":
-            item = generate_weapon(player_class=pc, level=recipe["level_param"], rarity="Uncommon")
+            item = generate_weapon(player_class=pc, level=recipe["level_param"], rarity=rarity)
         else:
-            item = generate_armor(level=recipe.get("level_param", 5), rarity="Uncommon")
+            item = generate_armor(level=recipe.get("level_param", 5), rarity=rarity, player_class=pc)
         item.name = f"Crafted {recipe['name']}"
         player.add_item(item)
         return True, f"Crafted {item.name}! (+{raw_xp} XP){lv_msg}", item
@@ -231,9 +245,14 @@ def craft_item(player, skill_name, recipe_idx, player_class=None):
         eff_val = recipe["effect_value"]
         eff_dur = recipe.get("effect_duration", 0)
         value   = max(10, eff_val * 3)
-        item = Item(recipe["output_name"], "consumable", "Common", value,
-                    effect=eff, effect_value=eff_val, effect_duration=eff_dur)
-        player.add_item(item)
-        return True, f"Crafted {recipe['output_name']}! (+{raw_xp} XP){lv_msg}", item
+        copies = 2 if DOUBLE_CRAFT_SKILLS.get(tp) == skill_name and random.random() < DOUBLE_CRAFT_CHANCE else 1
+        for _ in range(copies):
+            item = Item(recipe["output_name"], "consumable", "Common", value,
+                        effect=eff, effect_value=eff_val, effect_duration=eff_dur)
+            if skill_name == "Cooking":
+                item.category = "food"
+            player.add_item(item)
+        extra = " ×2!" if copies == 2 else ""
+        return True, f"Crafted {recipe['output_name']}{extra}! (+{raw_xp} XP){lv_msg}", item
 
     return False, "Unknown output type.", None

@@ -18,7 +18,7 @@
       <div class="item-info">
         <div style="font-size:13px;">{{ slot | capitalize }}: <span class="{% if it %}r-{{ it.rarity }}{% endif %}">{{ it.name if it else '—' }}</span></div>
         {% if it %}{{ item_stats(it) }}{% endif %}
-        {% set cost = upgrade_cost(it) if it else none %}
+        {% set cost = upgrade_cost(it, p) if it else none %}
         {% if cost %}
         {% set have = p.resources.get(cost[1], 0) %}
         <div class="item-meta">Upgrade to +{{ it.upgrade + 1 }}: {{ cost[0] }}g + {{ cost[2] }}× {{ cost[1] }}

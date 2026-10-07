@@ -232,3 +232,120 @@ def test_stacking_venom_stacks_poison():
 
 SIGNATURE_AND_PERK_TESTS = {'Bastion', 'Undying Rage', 'Momentum', 'Spellweaver', 'Wildfire', 'Deathless',
                             'Exploit Weakness', "Hunter's Mark", 'Stacking Venom'}
+
+
+# ── Trade professions ──────────────────────────────────────────────────────────
+
+import crafting
+from crafting import CRAFTING_RECIPES, TRADE_PROFESSIONS, craft_item
+from items import Item, upgrade_cost
+from player import Player
+
+
+def trader(trade, cls='Warrior'):
+    p = Player('T', cls)
+    p.trade_profession = trade
+    p.crafting_skills = {k: {'level': 20, 'xp': 0} for k in p.crafting_skills}
+    p.resources = {}
+    return p
+
+
+def _recipe_idx(skill, name):
+    return next(i for i, r in enumerate(CRAFTING_RECIPES[skill]) if r['name'] == name)
+
+
+def test_every_trade_has_two_perks_and_no_name_clash_with_combat_professions():
+    combat_names = {prof for profs in PROFESSIONS.values() for prof in profs}
+    for name, data in TRADE_PROFESSIONS.items():
+        assert len(data['perks']) == 2, name
+        assert name not in combat_names, f'{name} is both a trade and a combat profession'
+
+
+@pytest.mark.parametrize('trade,skill,recipe,inputs', [
+    ('Blacksmith', 'Smithing', 'Iron Weapon', {'Iron Bar': 2}),
+    ('Fletcher', 'Fletching', 'Oak Shortbow', {'Oak Logs': 2}),
+])
+def test_masterwork_crafts_rare_gear(trade, skill, recipe, inputs):
+    for who, expected in ((trade, 'Rare'), ('Fisher', 'Uncommon')):
+        p = trader(who)
+        p.resources = dict(inputs)
+        ok, _, item = craft_item(p, skill, _recipe_idx(skill, recipe))
+        assert ok and item.rarity == expected, who
+
+
+@pytest.mark.parametrize('trade,skill,recipe,inputs', [
+    ('Alchemist', 'Herblore', 'Antidote', {'Marrentill': 1}),
+    ('Fisher', 'Cooking', 'Cooked Shrimp', {'Raw Shrimp': 1}),
+])
+def test_double_craft(trade, skill, recipe, inputs, monkeypatch):
+    monkeypatch.setattr(crafting, 'DOUBLE_CRAFT_CHANCE', 1.0)
+    for who, expected in ((trade, 2), ('Blacksmith', 1)):
+        p = trader(who)
+        p.resources = dict(inputs)
+        craft_item(p, skill, _recipe_idx(skill, recipe))
+        assert len([i for i in p.inventory if i.name == recipe]) == expected, who
+
+
+def test_forgemaster_upgrades_cheaper():
+    sword = Item('S', 'weapon', 'Rare', 10, {'atk': 10})
+    smith, other = trader('Blacksmith'), trader('Alchemist')
+    g1, bar1, q1 = upgrade_cost(sword, smith)
+    g0, bar0, q0 = upgrade_cost(sword, other)
+    assert g1 < g0 and q1 < q0 and bar1 == bar0
+
+
+def _drink(trade, category=None, effect='heal_pct'):
+    p = trader(trade)
+    p.hp, p.mp = 1, 0
+    item = Item('X', 'consumable', 'Common', 5, effect=effect, effect_value=20)
+    item.category = category
+    p.add_item(item)
+    p.use_consumable(item)
+    return p.hp, p.mp
+
+
+def test_alchemist_potions_are_stronger_but_not_food():
+    assert _drink('Alchemist')[0] > _drink('Blacksmith')[0]
+    assert _drink('Alchemist', 'food')[0] == _drink('Blacksmith', 'food')[0]
+
+
+def test_fisher_food_heals_more_and_restores_mp():
+    hp_f, mp_f = _drink('Fisher', 'food')
+    hp_o, mp_o = _drink('Blacksmith', 'food')
+    assert hp_f > hp_o and mp_f > 0 and mp_o == 0
+    assert _drink('Fisher')[0] == _drink('Blacksmith')[0], 'potions are not food'
+
+
+def test_cooked_items_are_tagged_food():
+    p = trader('Blacksmith')
+    p.resources = {'Raw Shrimp': 1}
+    _, _, item = craft_item(p, 'Cooking', _recipe_idx('Cooking', 'Cooked Shrimp'))
+    assert item.category == 'food'
+
+
+def test_woodsmans_eye_halves_traps_and_forages_more():
+    import world
+    from conftest import make_player
+    def trap_pct(trade):
+        p = make_player('Rogue', level=8)
+        p.trade_profession = trade
+        for seed in range(40):
+            random.seed(seed)
+            for o in world.generate_explore_options(p, 2, set(), depth=4):
+                if o['kind'] == 'treasure':
+                    return o['trap_pct']
+    assert trap_pct('Fletcher') == trap_pct('Fisher') // 2
+    def forage(trade):
+        p = make_player('Rogue', level=8)
+        p.trade_profession, p.resources = trade, {}
+        random.seed(1)
+        world.resolve_option({'kind': 'forage', 'skill': 'Mining'}, p, 1, set(), 0)
+        return sum(p.resources.values())
+    assert forage('Fletcher') == forage('Fisher') + 1
+
+
+def test_old_ranger_trade_is_renamed_to_fletcher():
+    import pickle
+    p = Player('T', 'Rogue')
+    p.trade_profession = 'Ranger'
+    assert pickle.loads(pickle.dumps(p)).trade_profession == 'Fletcher'

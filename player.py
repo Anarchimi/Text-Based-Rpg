@@ -4,6 +4,9 @@ from abilities import PROFESSION_ABILITIES, get_available_abilities
 XP_TABLE = [0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200,
             4000, 5000, 6200, 7600, 9200, 11000, 13200, 15800, 18800, 22200]
 
+# Trade perks (Alchemist potions / Fisher food) scale these effects by 1.5×. Permanent elixirs excluded.
+BOOSTABLE_EFFECTS = ("heal_pct", "heal_mp_pct", "heal_hp", "heal_mp", "heal_overheal",
+                     "temp_buff_str", "temp_buff_vit", "temp_buff_all")
 ELIXIR_CAP = 5        # permanent-stat elixirs a character can drink, per kind
 STATS_VERSION = 2     # bump with a migration in Player.__setstate__ when stat rules change
 
@@ -405,7 +408,7 @@ class Player:
         item = self.equipment.get(slot)
         if not item:
             return False, "Nothing equipped there."
-        cost = upgrade_cost(item)
+        cost = upgrade_cost(item, self)
         if cost is None:
             return False, f"{item.name} is already fully upgraded."
         gold, bar, qty = cost
@@ -428,6 +431,14 @@ class Player:
         eff = item.effect
         val = item.effect_value
         dur = getattr(item, 'effect_duration', 0)
+        is_food = item.category == "food"
+        boosted = ((self.trade_profession == "Alchemist" and not is_food)
+                   or (self.trade_profession == "Fisher" and is_food))
+        if boosted and eff in BOOSTABLE_EFFECTS:
+            val = int(val * 1.5)
+        if is_food and self.trade_profession == "Fisher" and eff in ("heal_pct", "heal_overheal"):
+            restored = min(int(self.max_mp * val / 100), self.max_mp - self.mp)
+            self.mp += restored
 
         if eff == "heal_pct":
             amt = int(self.max_hp * val / 100)
@@ -550,6 +561,8 @@ class Player:
         d.setdefault("elixirs_used", {})
         d.setdefault("momentum", 0)
         d.setdefault("deathless_used", False)
+        if d.get("trade_profession") == "Ranger":  # renamed to avoid clashing with the Rogue's Ranger
+            d["trade_profession"] = "Fletcher"
         self.__dict__.update(d)
         if d.get("_stats_version", 1) < STATS_VERSION:
             self._migrate_stats_v2()

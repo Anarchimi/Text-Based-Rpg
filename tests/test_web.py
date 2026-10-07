@@ -34,6 +34,7 @@ def test_random_play_never_errors(seed):
     resp = client.get('/')
     for _ in range(300):
         assert resp.status_code == 200, resp.get_data(as_text=True)[-2000:]
+        assert '&amp;amp;' not in resp.get_data(as_text=True), 'double-escaped text on screen'
         choices = _choices(resp.get_data(as_text=True))
         if not choices:
             break
