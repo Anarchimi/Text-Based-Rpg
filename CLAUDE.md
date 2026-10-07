@@ -38,7 +38,13 @@ Tests live in `tests/` (pytest). `test_combat_effects.py` asserts that every buf
 
 The web app is a single-page application driven by a `state` dict with a `screen` field. Every POST to `/action` reads state from disk, transitions `state['screen']` based on `action=` form data, saves state, and redirects to `GET /` which re-renders `templates/game.html`.
 
-`templates/game.html` is a thin shell (head, body, sound script) that includes `templates/screens/<state.screen>.html` — one file per screen (title, hub, combat, shop, inn, etc.). The client-side sound/haptics script lives in `templates/partials/scripts.html`. There is no JavaScript routing.
+`templates/game.html` is a thin shell (head, body, script) that includes `templates/screens/<state.screen>.html` — one file per screen (title, hub, combat, shop, inn, etc.) — and sets `<body data-screen data-music data-zone>`; `data-music` (title / town / explore / combat / boss / final / ending / none) is chosen in `game.html` from the screen and the enemy.
+
+**Client script** (`static/game.js`, loaded by `templates/partials/scripts.html`) is progressive enhancement — every screen still works as a plain form post without it:
+- *In-place screens:* form submits are sent with `fetch`, and the `.screen` from the returned page is swapped in (body attributes copied), so the page never reloads and music keeps playing. Any failure falls back to a normal reload; double taps are ignored while a request is in flight. Read the form's URL with `getAttribute('action')` — the buttons are named `action`, which shadows `form.action`.
+- *Sound effects:* synthesized with Web Audio (no audio files). Pressing a button plays a sound for its action value (`actionSound`); after a swap, messages that are **new** compared with the previous screen play result sounds by `msg-<kind>` (`RESULT_SOUNDS`, max three). The combat log grows all fight and the victory screen repeats it, so only the new tail counts (`newMessages`).
+- *Music:* a step sequencer plays generated themes (`theme()`); town/explore themes follow the zone's mode (`ZONE_MODE`). Changing theme crossfades; the same theme carries on across screens.
+- Audio starts on the first tap (browser autoplay rules); music and sound can each be muted from the 🔊 button (saved in `localStorage`). Levels were set by rendering every sound and theme into an `OfflineAudioContext` (`window.__rpgAudio.renderSound/renderTheme`) and measuring peak/RMS: music ~0.007–0.016 RMS under effects, nothing above the 0.9 soft-clip ceiling. Set each node's initial gain/frequency explicitly — a `GainNode` is 1.0 until its first event, and a start time between samples otherwise leaks a full-volume click.
 
 **Screen flow:**
 ```
