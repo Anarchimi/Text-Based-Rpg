@@ -1,4 +1,6 @@
 import os
+import re
+import sys
 import uuid
 import random
 import pickle
@@ -16,7 +18,13 @@ from crafting import (TRADE_PROFESSIONS, CRAFTING_RECIPES, ZONE_RESOURCES,
                       GATHER_BUTTON_LABELS, gather_resource, craft_item, calc_skill_level)
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', b'shattered-realm-secret-2024')
+_secret = os.environ.get('SECRET_KEY')
+if not _secret:
+    # No hardcoded fallback: a key committed to the repo lets anyone forge session cookies.
+    # A per-process random key is safe but logs everyone out on restart, so set SECRET_KEY in production.
+    print('WARNING: SECRET_KEY not set; using a random key (sessions reset on restart).', file=sys.stderr)
+    _secret = os.urandom(32)
+app.secret_key = _secret
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = timedelta(days=365)
 app.config['COMPRESS_MIMETYPES'] = [
     'text/html', 'text/css', 'application/json', 'application/javascript',
@@ -66,9 +74,17 @@ ENEMY_SPRITES = {
 
 # ── State management ──────────────────────────────────────────────────────────
 
+_SID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+
+
+def _valid_sid(sid):
+    """The sid becomes a filename we unpickle, so only accept a canonical UUID."""
+    return isinstance(sid, str) and bool(_SID_RE.match(sid))
+
+
 def get_state():
     sid = session.get('sid')
-    if not sid:
+    if not _valid_sid(sid):
         return None
     try:
         with open(f'{SAVE_DIR}/{sid}.pkl', 'rb') as f:
@@ -79,7 +95,7 @@ def get_state():
 
 def save_state(state):
     sid = session.get('sid')
-    if not sid:
+    if not _valid_sid(sid):
         sid = str(uuid.uuid4())
         session['sid'] = sid
     os.makedirs(SAVE_DIR, exist_ok=True)
@@ -182,13 +198,13 @@ def do_combat_turn(state, action, ability_idx=None, item_idx=None):
                     dmg = int(dmg * 1.5)
                     clog('buff', 'BERSERK RAGE! +50% ATK!')
 
-                # Execute thresholds
-                execute_threshold = 0.40 if player.profession == 'Assassin' else 0.30
-                if picked.name == 'Execute' and enemy.hp < enemy.max_hp * execute_threshold:
+                if picked.name == 'Execute' and enemy.hp < enemy.max_hp * 0.30:
                     dmg = int(dmg * 2)
                     clog('crit', 'EXECUTE! 2× DAMAGE!')
                 if picked.name == 'Death Mark':
-                    mult = 3 if player.profession != 'Assassin' else 3
+                    mult = 3
+                    if player.profession == 'Assassin':
+                        mult = 5 if enemy.hp < enemy.max_hp * 0.40 else 4
                     dmg = int(dmg * mult)
                     clog('crit', f'DEATH MARK! {mult}× DAMAGE!')
 

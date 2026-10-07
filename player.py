@@ -104,7 +104,7 @@ PROFESSIONS = {
     },
     "Rogue": {
         "Assassin": {
-            "passive": "Execute triggers at 40% HP. Death Mark deals 3× damage.",
+            "passive": "Death Mark deals 4× damage (5× on enemies below 40% HP).",
             "stat_bonus": {"base_dex": 5, "base_lck": 3},
             "skills": [
                 {"name": "Blade Mastery", "desc": "+8 DEX",           "stat": "dex", "bonus": 8,  "cost": 1},
