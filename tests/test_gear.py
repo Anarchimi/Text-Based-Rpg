@@ -196,3 +196,26 @@ def test_permanent_and_revive_consumables_are_not_pocket_change():
         c = generate_consumable()
         seen[c.effect] = c.value
     assert seen['buff_str'] >= 300 and seen['buff_int'] >= 300 and seen['revive'] >= 200
+
+
+def test_permanent_elixirs_are_capped_per_kind():
+    from player import ELIXIR_CAP
+    p = Player('T', 'Warrior')
+    base = p.base_str
+    for _ in range(ELIXIR_CAP + 2):
+        e = Item('Elixir of Power', 'consumable', 'Common', 400, effect='buff_str', effect_value=5)
+        p.add_item(e)
+        ok, _ = p.use_consumable(e)
+    assert p.base_str == base + 5 * ELIXIR_CAP
+    assert not ok and e in p.inventory, 'a refused elixir is not consumed'
+    w = Item('Elixir of Wisdom', 'consumable', 'Common', 400, effect='buff_int', effect_value=5)
+    p.add_item(w)
+    assert p.use_consumable(w)[0], 'INT has its own cap'
+
+
+def test_using_a_phoenix_feather_keeps_it():
+    p = Player('T', 'Warrior')
+    f = Item('Phoenix Feather', 'consumable', 'Common', 250, effect='revive', effect_value=1)
+    p.add_item(f)
+    ok, _ = p.use_consumable(f)
+    assert not ok and p.has_revive()

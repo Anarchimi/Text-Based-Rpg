@@ -4,6 +4,7 @@ from abilities import get_available_abilities
 XP_TABLE = [0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200,
             4000, 5000, 6200, 7600, 9200, 11000, 13200, 15800, 18800, 22200]
 
+ELIXIR_CAP = 5        # permanent-stat elixirs a character can drink, per kind
 STATS_VERSION = 2     # bump with a migration in Player.__setstate__ when stat rules change
 
 
@@ -184,6 +185,7 @@ class Player:
         self.prof_skills_learned = []
         self.first_strike_used  = False  # for Ranger passive
         self.second_wind_used   = False  # "Second Wind" legendary, once per fight
+        self.elixirs_used       = {}     # {"buff_str": n, "buff_int": n}, capped at ELIXIR_CAP
 
         # Trade / gathering professions
         self.trade_profession = None
@@ -447,19 +449,25 @@ class Player:
         elif eff == "temp_buff_all":
             self.temp_buffs.append({"stat": "all", "amount": val, "turns": dur})
             msg = f"All stats +{val} for {dur} turns!"
-        elif eff == "buff_str":
-            self.base_str += val
-            msg = f"STR permanently increased by {val}!"
-        elif eff == "buff_int":
-            self.base_int += val
-            msg = f"INT permanently increased by {val}!"
+        elif eff in ("buff_str", "buff_int"):
+            used = self.elixirs_used.get(eff, 0)
+            stat = "STR" if eff == "buff_str" else "INT"
+            if used >= ELIXIR_CAP:
+                return False, f"Your body can't absorb any more — {ELIXIR_CAP}/{ELIXIR_CAP} {stat} elixirs used."
+            self.elixirs_used[eff] = used + 1
+            if eff == "buff_str":
+                self.base_str += val
+            else:
+                self.base_int += val
+            msg = f"{stat} permanently increased by {val}! ({used + 1}/{ELIXIR_CAP} {stat} elixirs used)"
         elif eff == "cure":
             self.dot = 0
             self.dot_dmg = 0
             self.debuffs.clear()
             msg = "Cured all status effects!"
         elif eff == "revive":
-            msg = "Saved for revive on death."
+            # Used to delete the feather while claiming to save it.
+            return False, "A Phoenix Feather works by itself: it revives you automatically if you fall."
         self.inventory.remove(item)
         return True, msg
 
@@ -527,6 +535,7 @@ class Player:
         d.setdefault("debuffs", {})
         d.get("equipment", {}).setdefault("accessory", None)
         d.setdefault("second_wind_used", False)
+        d.setdefault("elixirs_used", {})
         self.__dict__.update(d)
         if d.get("_stats_version", 1) < STATS_VERSION:
             self._migrate_stats_v2()
