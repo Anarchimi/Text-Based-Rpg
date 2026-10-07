@@ -5,7 +5,7 @@ XP_TABLE = [0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200,
             4000, 5000, 6200, 7600, 9200, 11000, 13200, 15800, 18800, 22200]
 
 # Trade perks (Alchemist potions / Fisher food) scale these effects by 1.5×. Permanent elixirs excluded.
-BOOSTABLE_EFFECTS = ("heal_pct", "heal_mp_pct", "heal_hp", "heal_mp", "heal_overheal",
+BOOSTABLE_EFFECTS = ("heal_pct", "heal_mp_pct", "heal_hp", "heal_mp", "heal_overheal", "cure_heal",
                      "temp_buff_str", "temp_buff_vit", "temp_buff_all")
 ELIXIR_CAP = 5        # permanent-stat elixirs a character can drink, per kind
 STATS_VERSION = 2     # bump with a migration in Player.__setstate__ when stat rules change
@@ -192,6 +192,7 @@ class Player:
         self.momentum           = 0      # Champion "Momentum" perk, per fight
         self.deathless_used     = False  # Necromancer "Deathless" perk, once per fight
         self.unlock_log         = []     # trade milestone messages not yet shown
+        self.alchemy_journal    = {"recipes": {}, "hints": {}}  # recipes: name -> (ingr, ingr); hints: name -> text
         self.trade_specialization = None # reserved for trade specializations (not chosen yet)
 
         # Trade / gathering professions
@@ -485,6 +486,11 @@ class Player:
             else:
                 self.base_int += val
             msg = f"{stat} permanently increased by {val}! ({used + 1}/{ELIXIR_CAP} {stat} elixirs used)"
+        elif eff == "cure_heal":   # Panacea: cure everything and heal val% HP
+            self.debuffs.clear()
+            healed = min(int(self.max_hp * val / 100), self.max_hp - self.hp)
+            self.hp += healed
+            msg = f"Cured all status effects and restored {healed} HP!"
         elif eff == "cure":
             self.dot = 0
             self.dot_dmg = 0
@@ -564,6 +570,7 @@ class Player:
         d.setdefault("momentum", 0)
         d.setdefault("deathless_used", False)
         d.setdefault("unlock_log", [])
+        d.setdefault("alchemy_journal", {"recipes": {}, "hints": {}})
         d.setdefault("trade_specialization", None)
         if d.get("trade_profession") == "Ranger":  # renamed to avoid clashing with the Rogue's Ranger
             d["trade_profession"] = "Fletcher"

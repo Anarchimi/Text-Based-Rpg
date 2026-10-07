@@ -124,6 +124,12 @@ def resolve_trade_event(event_id, player, zone, depth):
         got = [_grant(player, random.choice(_zone_res(zone, skill)), 1) for _ in range(random.randint(3, 5))]
         player.gain_skill_xp("gathering", skill, 20 + 5 * zone)
         return [("resource", 0, f"You harvest the find: {', '.join(got)} (+{20 + 5 * zone} {skill} XP)")]
+    if event_id == "remains":
+        return _resolve_remains(player, zone)
+    if event_id == "herb_patch":
+        node = make_patch_node(player, zone)
+        if node:  # Rare Patches: the find becomes a patch you choose how to harvest
+            return [("node", node, "You find a lush herb patch.")]
     if event_id == "salvage":
         msg = f"You pick through the wreckage: {_grant(player, ZONE_BAR[zone], random.randint(1, 3))}"
         events = [("resource", 0, msg)]
@@ -369,3 +375,215 @@ def temper(player, item, name):
     if item in player.equipment.values():
         player._grow_pools(item.stats.get("hp", 0) - old_hp, 0)
     return True, f"Tempered {item.name}: {name}."
+
+
+# ── Alchemist: ingredients, experiments, journal ───────────────────────────────
+# Every ingredient has a main and a secondary property. Herbalism reveals them
+# (5: main, 15: secondary); monster reagents always show their main property.
+# Mixing two ingredients whose MAIN properties form a recipe's pair discovers it.
+# One main + the other's SECONDARY makes a weak, unstable version and a hint.
+INGREDIENTS = {
+    "Guam Leaf":      ("Vitality",     "Restoration"),
+    "Marrentill":     ("Purification", "Vitality"),
+    "Tarromin":       ("Strength",     "Fortification"),
+    "Harralander":    ("Fortification", "Purification"),
+    "Ranarr Weed":    ("Restoration",  "Clarity"),
+    "Irit Leaf":      ("Clarity",      "Arcane"),
+    "Kwuarm":         ("Power",        "Strength"),
+    "Snapdragon":     ("Renewal",      "Restoration"),
+    "Lantadyme":      ("Arcane",       "Clarity"),
+    "Torstol":        ("Potency",      "Power"),
+    # monster reagents (combat drops) and the legendary bloom
+    "Vampire Fang":   ("Lifeblood",    "Power"),
+    "Dragon Scale":   ("Draconic",     "Fortification"),
+    "Shadow Essence": ("Void",         "Arcane"),
+    "Starbloom":      ("Mythic",       "Renewal"),
+}
+MONSTER_REAGENTS = {"Vampire Fang": ["Vampire"], "Dragon Scale": ["Wyvern", "Ancient Dragon"],
+                    "Shadow Essence": ["Shadow Assassin", "Void Stalker"]}
+REAGENT_DROP_CHANCE = 0.30
+
+# Discoverable recipes: frozenset of two MAIN properties -> brew spec (existing consumable effects).
+ALCHEMY_RECIPES = {
+    frozenset({"Vitality", "Restoration"}):     {"name": "Healing Draught",       "effect": "heal_pct",      "value": 40},
+    frozenset({"Strength", "Power"}):           {"name": "Draught of Might",      "effect": "temp_buff_str", "value": 18, "duration": 4},
+    frozenset({"Fortification", "Vitality"}):   {"name": "Ironskin Tonic",        "effect": "temp_buff_vit", "value": 15, "duration": 4},
+    frozenset({"Clarity", "Restoration"}):      {"name": "Clarity Draught",       "effect": "heal_mp_pct",   "value": 50},
+    frozenset({"Purification", "Renewal"}):     {"name": "Panacea",               "effect": "cure_heal",     "value": 25},
+    frozenset({"Arcane", "Potency"}):           {"name": "Elixir of the Arcane",  "effect": "temp_buff_all", "value": 10, "duration": 5},
+    frozenset({"Lifeblood", "Restoration"}):    {"name": "Crimson Draught",       "effect": "heal_overheal", "value": 70},
+    frozenset({"Draconic", "Fortification"}):   {"name": "Dragonblood Elixir",    "effect": "temp_buff_all", "value": 15, "duration": 6},
+    frozenset({"Void", "Arcane"}):              {"name": "Void Tonic",            "effect": "heal_mp_pct",   "value": 100},
+    frozenset({"Mythic", "Restoration"}):       {"name": "Phoenix Draught",       "effect": "revive",        "value": 1},
+}
+UNSTABLE_POTENCY = 0.5
+POTENT_BREW_BONUS = 1.25   # Herblore 15
+
+TRADE_MILESTONES.setdefault("Herbalism", {}).update({
+    5:  ("Herb Lore", "See each herb's main property at the alchemy bench."),
+    10: ("Rare Patches", "Special herb patches can appear while foraging: harvest quickly or carefully."),
+    15: ("Keen Eye", "See each herb's secondary property — the key to unstable mixes."),
+    20: ("Mythic Bloom", "Careful harvests can uncover Starbloom, a legendary reagent."),
+})
+TRADE_MILESTONES["Herblore"].update({
+    10: ("Reagent Lore", "Alchemists can find monster remains on the trail: alchemical reagents."),
+    15: ("Potent Brews", "Recipes from your journal brew 25% stronger."),
+})
+
+
+def journal(player):
+    return player.alchemy_journal
+
+
+def known_properties(player, ingredient):
+    """(main, secondary) with '?' for what this player hasn't learned to see yet."""
+    main, sec = INGREDIENTS[ingredient]
+    reagent = ingredient in MONSTER_REAGENTS or ingredient == "Starbloom"
+    show_main = reagent or skill_level(player, "Herbalism") >= 5
+    show_sec = skill_level(player, "Herbalism") >= 15
+    return (main if show_main else "?"), (sec if show_sec else "?")
+
+
+def owned_ingredients(player):
+    return [n for n in INGREDIENTS if player.resources.get(n, 0) > 0]
+
+
+def _brew_item(spec, potency=1.0, unstable=False):
+    from items import Item
+    value = max(1, int(round(spec["value"] * potency))) if spec["effect"] != "revive" else 1
+    name = spec["name"] + (" (unstable)" if unstable else "")
+    item = Item(name, "consumable", "Common", 30 if not unstable else 10, effect=spec["effect"],
+                effect_value=value, effect_duration=spec.get("duration", 0))
+    item.category = "potion"
+    return item
+
+
+def experiment(player, a, b):
+    """Mix one each of ingredients a and b. Returns (kind, message, item_or_None).
+    kind: 'discovery' | 'known' | 'unstable' | 'fail'."""
+    if a == b or a not in INGREDIENTS or b not in INGREDIENTS:
+        return "invalid", "Choose two different ingredients.", None
+    if player.resources.get(a, 0) < 1 or player.resources.get(b, 0) < 1:
+        return "invalid", "You don't have those ingredients.", None
+    player.remove_resource(a, 1)
+    player.remove_resource(b, 1)
+    (ma, sa), (mb, sb) = INGREDIENTS[a], INGREDIENTS[b]
+    j = journal(player)
+    spec = ALCHEMY_RECIPES.get(frozenset({ma, mb}))
+    if spec and ma != mb:
+        new = spec["name"] not in j["recipes"]
+        j["recipes"][spec["name"]] = (a, b)
+        item = _brew_item(spec)
+        player.add_item(item)
+        player.gain_skill_xp("crafting", "Herblore", 60 if new else 25)
+        return ("discovery" if new else "known"), (
+            f"✨ NEW RECIPE: {spec['name']}! Written into your journal." if new else f"You brew {spec['name']}."), item
+    for main, other_sec, partner in ((ma, sb, b), (mb, sa, a)):
+        spec = ALCHEMY_RECIPES.get(frozenset({main, other_sec}))
+        if spec and main != other_sec:
+            missing = other_sec
+            j["hints"][spec["name"]] = f"{main} + {missing} → {spec['name']}? ({partner} only carries {missing} faintly)"
+            item = _brew_item(spec, UNSTABLE_POTENCY, unstable=True)
+            player.add_item(item)
+            player.gain_skill_xp("crafting", "Herblore", 20)
+            return "unstable", (f"The mixture fizzes — an unstable {spec['name']}. "
+                                f"Something with {missing} as its main property would make it whole."), item
+    player.gain_skill_xp("crafting", "Herblore", 10)
+    if random.random() < 0.3:
+        player.hp = max(1, player.hp - max(1, player.max_hp // 20))
+        return "fail", "The mixture spits acrid fumes in your face. (−5% HP)", None
+    return "fail", "Nothing useful comes of it. The properties don't combine.", None
+
+
+def brew_known(player, name):
+    """One-tap brew of a journal recipe with the same two ingredients."""
+    from crafting import DOUBLE_CRAFT_SKILLS, DOUBLE_CRAFT_CHANCE
+    pair = journal(player)["recipes"].get(name)
+    if not pair:
+        return False, "You haven't discovered that recipe.", None
+    a, b = pair
+    if player.resources.get(a, 0) < 1 or player.resources.get(b, 0) < 1:
+        return False, f"Needs 1× {a} and 1× {b}.", None
+    player.remove_resource(a, 1)
+    player.remove_resource(b, 1)
+    spec = next(s for s in ALCHEMY_RECIPES.values() if s["name"] == name)
+    potency = POTENT_BREW_BONUS if has_milestone(player, "Herblore", 15) else 1.0
+    copies = 2 if DOUBLE_CRAFT_SKILLS.get(player.trade_profession) == "Herblore" and random.random() < DOUBLE_CRAFT_CHANCE else 1
+    for _ in range(copies):
+        item = _brew_item(spec, potency)
+        player.add_item(item)
+    player.gain_skill_xp("crafting", "Herblore", 25)
+    return True, f"You brew {name}{' ×2!' if copies == 2 else ''}.", item
+
+
+def reagent_drop(enemy_name):
+    """A monster reagent dropped by this enemy (or None)."""
+    for reagent, sources in MONSTER_REAGENTS.items():
+        if any(src in enemy_name for src in sources) and random.random() < REAGENT_DROP_CHANCE:
+            return reagent
+    return None
+
+
+# Rare herb patches (Herbalism 10+)
+PATCH_CHANCE = 0.15
+STING_CHANCE = 0.20
+
+
+def _zone_herbs(player, zone):
+    from crafting import ZONE_RESOURCES
+    lv = skill_level(player, "Herbalism")
+    return [n for n, _, req in ZONE_RESOURCES.get(zone, {}).get("Herbalism", []) if lv >= req]
+
+
+def make_patch_node(player, zone):
+    herbs = _zone_herbs(player, zone)
+    if not herbs or not has_milestone(player, "Herbalism", 10):
+        return None
+    nxt = _zone_res(min(zone + 1, 5), "Herbalism")
+    bloom = has_milestone(player, "Herbalism", 20)
+    careful = f"1–2 herbs, 50% chance of {nxt[0]}" + (", rare Starbloom" if bloom else "") \
+        + f" · {int(STING_CHANCE * 100)}% chance of a poisonous sting (−10% HP)"
+    return {"type": "patch", "zone": zone, "herbs": herbs, "rare": nxt[0], "bloom": bloom,
+            "title": "A lush herb patch", "text": "Rare plants grow among the common ones.",
+            "options": [{"key": "quick", "label": "🌿 Harvest quickly", "detail": "3–4 common herbs · no risk"},
+                        {"key": "careful", "label": "🔍 Harvest carefully", "detail": careful},
+                        {"key": "leave", "label": "↩ Leave it", "detail": ""}]}
+
+
+def _resolve_patch(node, key, player):
+    found = []
+
+    def add(name, qty):
+        player.add_resource(name, qty)
+        found.append(f"{qty}× {name}")
+    events = []
+    if key == "quick":
+        for _ in range(random.randint(3, 4)):
+            add(random.choice(node["herbs"]), 1)
+        xp = 30 + 5 * node["zone"]
+    elif key == "careful":
+        if random.random() < STING_CHANCE:
+            events.append(("trap_pct", 10, "A thorned leaf stings you!"))
+        add(random.choice(node["herbs"]), random.randint(1, 2))
+        if random.random() < 0.5:
+            add(node["rare"], 1)
+        if node.get("bloom") and random.random() < 0.10:
+            add("Starbloom", 1)
+        xp = 50 + 8 * node["zone"]
+    else:
+        return [("nothing", 0, "")]
+    player.gain_skill_xp("gathering", "Herbalism", xp)
+    return events + [("resource", 0, f"You harvest {', '.join(found)} (+{xp} Herbalism XP)")]
+
+
+NODE_RESOLVERS["patch"] = _resolve_patch
+
+PROFESSION_EVENTS["Alchemist"].append(
+    {"id": "remains", "skill": "Herblore", "level": 10, "icon": "🦴",
+     "title": "Monster remains", "detail": "Harvest alchemical reagents from a carcass"})
+
+
+def _resolve_remains(player, zone):
+    reagent = random.choice(list(MONSTER_REAGENTS))
+    player.add_resource(reagent, 1)
+    return [("resource", 0, f"You carefully harvest 1× {reagent} from the remains.")]

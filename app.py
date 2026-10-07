@@ -175,6 +175,7 @@ def fresh_state():
         'pending_node': None,     # special trade node being decided (trades.py), shown on `node`
         'node_return': 'gather',  # screen to go back to after the node
         'workshop': None,         # {'skill', 'recipe', 'slot', 'additive'} on the `workshop` screen
+        'alchemy_pick': [],       # up to two ingredients chosen on the `alchemy` screen
         'triggered_events': set(),
         'craft_skill': 'Smithing',
     }
@@ -225,6 +226,8 @@ def special_node_for(player, zone, skill):
     """Occasionally a routine gather tap turns into a special node (milestone-gated)."""
     if skill == 'Mining' and random.random() < trades.VEIN_CHANCE:
         return trades.make_vein_node(player, zone)
+    if skill == 'Herbalism' and random.random() < trades.PATCH_CHANCE:
+        return trades.make_patch_node(player, zone)
     return None
 
 
@@ -402,6 +405,11 @@ def finish_combat_victory(state):
     for item in items:
         log.append({'kind': 'loot', 'text': f'Loot: {item.name} [{item.rarity}]'})
         player.add_item(item)
+
+    reagent = trades.reagent_drop(enemy.name)
+    if reagent:
+        player.add_resource(reagent, 1)
+        log.append({'kind': 'loot', 'text': f'Reagent: 1× {reagent}'})
 
     for q in quest_log.check_event('kill', enemy.name):
         log.append({'kind': 'quest', 'text': f'Quest progress: {q.title}'})
@@ -657,6 +665,29 @@ def action():
             if ws.get('additive') not in trades.usable_additives(player):
                 ws['additive'] = None
 
+    elif screen == 'alchemy':
+        player = state['player']
+        pick = state.setdefault('alchemy_pick', [])
+        if act == 'back':
+            state['screen'] = 'craft'
+            state['alchemy_pick'] = []
+            clear_msgs(state)
+        elif act.startswith('alc_pick_'):
+            name = act[len('alc_pick_'):]
+            if name in pick:
+                pick.remove(name)
+            elif name in trades.owned_ingredients(player) and len(pick) < 2:
+                pick.append(name)
+        elif act == 'alc_mix' and len(pick) == 2:
+            clear_msgs(state)
+            kind, text, _ = trades.experiment(player, *pick)
+            add_msg(state, {'discovery': 'levelup', 'known': 'success', 'unstable': 'warning'}.get(kind, 'danger'), text)
+            state['alchemy_pick'] = [n for n in pick if player.resources.get(n, 0) > 0]
+        elif act.startswith('alc_brew_'):
+            clear_msgs(state)
+            ok, text, _ = trades.brew_known(player, act[len('alc_brew_'):])
+            add_msg(state, 'success' if ok else 'danger', text)
+
     elif screen == 'combat_result':
         if act == 'continue':
             state['screen'] = state.pop('return_to', 'hub')
@@ -848,6 +879,10 @@ def action():
             clear_msgs(state)
         elif act.startswith('tab_'):
             state['craft_skill'] = act.split('_', 1)[1]
+        elif act == 'alchemy':
+            clear_msgs(state)
+            state['alchemy_pick'] = []
+            state['screen'] = 'alchemy'
         elif act.startswith('forge_'):
             try:
                 idx = int(act.split('_', 1)[1])

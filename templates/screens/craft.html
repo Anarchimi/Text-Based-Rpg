@@ -36,6 +36,11 @@
   {% set cur_sk_data = p.crafting_skills.get(cur_skill, {"level": 1}) %}
   {% set cur_sk_lv = cur_sk_data.level %}
   {{ milestones(p, cur_skill) }}
+  {% if cur_skill == 'Herblore' %}
+  <form method="post" action="/action">
+    <button class="btn-purple btn-center" name="action" value="alchemy">⚗ Alchemy bench <span class="ability-desc">Experiment with ingredients · your recipe journal</span></button>
+  </form>
+  {% endif %}
 
   {% if recipes %}
   <form method="post" action="/action">

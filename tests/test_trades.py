@@ -13,7 +13,9 @@ from trades import (PROFESSION_EVENTS, TRADE_MILESTONES, available_trade_events,
 # Every milestone listed must be backed by a test below. Add to this set with the test.
 TESTED_MILESTONES = {("Smithing", 5), ("Herblore", 5), ("Cooking", 5), ("Fletching", 5),
                      ("Mining", 5), ("Mining", 10), ("Mining", 15), ("Mining", 20),
-                     ("Smithing", 10), ("Smithing", 15), ("Smithing", 20)}
+                     ("Smithing", 10), ("Smithing", 15), ("Smithing", 20),
+                     ("Herbalism", 5), ("Herbalism", 10), ("Herbalism", 15), ("Herbalism", 20),
+                     ("Herblore", 10), ("Herblore", 15)}
 
 
 def trader(trade, cls='Warrior', level=8, **skills):
@@ -53,12 +55,12 @@ def test_milestones_between_lists_only_crossed_levels():
 
 @pytest.mark.parametrize('trade', list(PROFESSION_EVENTS))
 def test_discoveries_need_the_profession_and_the_skill_level(trade):
-    basic, gated = PROFESSION_EVENTS[trade]
+    basic, gated = PROFESSION_EVENTS[trade][:2]
     novice = trader(trade)
     ids = {e['id'] for e in available_trade_events(novice, 2)}
     assert ids == {basic['id']}, 'the level-gated discovery needs its crafting skill at 5'
     adept = trader(trade, **{gated['skill']: gated['level']})
-    assert {e['id'] for e in available_trade_events(adept, 2)} == {basic['id'], gated['id']}
+    assert {basic['id'], gated['id']} <= {e['id'] for e in available_trade_events(adept, 2)}
     assert has_milestone(adept, gated['skill'], gated['level'])
     assert available_trade_events(trader(None), 2) == []
     other = next(t for t in PROFESSION_EVENTS if t != trade)
@@ -342,3 +344,161 @@ def test_tempering_and_upgrades_stack_once_without_looping():
     assert sword.stats['atk'] > upgraded and sword.upgrade == 1
     p.upgrade_equipped('weapon')
     assert sword.upgrade == 2 and sword.temper == 'Hone'
+
+
+# ── Phase 3: Alchemist ─────────────────────────────────────────────────────────
+
+from itertools import combinations
+from trades import ALCHEMY_RECIPES, INGREDIENTS
+
+
+def alch(**skills):
+    return trader('Alchemist', **skills)
+
+
+def stock(p, *names, qty=3):
+    for n in names:
+        p.resources[n] = qty
+    return p
+
+
+def test_property_reveal_follows_herbalism():
+    assert T.known_properties(alch(Herbalism=1), 'Guam Leaf') == ('?', '?')
+    assert T.known_properties(alch(Herbalism=5), 'Guam Leaf') == ('Vitality', '?')
+    assert T.known_properties(alch(Herbalism=15), 'Guam Leaf') == ('Vitality', 'Restoration')
+    assert T.known_properties(alch(Herbalism=1), 'Vampire Fang')[0] == 'Lifeblood', 'reagents show their main property'
+
+
+def test_every_recipe_is_discoverable_from_real_ingredients():
+    mains = {}
+    for name, (m, _) in INGREDIENTS.items():
+        mains.setdefault(m, []).append(name)
+    for pair, spec in ALCHEMY_RECIPES.items():
+        a, b = sorted(pair)
+        assert mains.get(a) and mains.get(b), f"{spec['name']} needs an ingredient with main property {a}/{b}"
+
+
+def test_most_combinations_teach_something():
+    """Avoid a combinatorial system where nearly every mix is garbage."""
+    useful = total = 0
+    for a, b in combinations(INGREDIENTS, 2):
+        (ma, sa), (mb, sb) = INGREDIENTS[a], INGREDIENTS[b]
+        total += 1
+        useful += any(frozenset(x) in ALCHEMY_RECIPES and len(set(x)) == 2
+                      for x in ((ma, mb), (ma, sb), (mb, sa)))
+    assert useful / total > 0.2, f'only {useful}/{total} mixes do anything'
+
+
+def test_discovery_persists_in_the_journal_through_save_load():
+    p = stock(alch(), 'Guam Leaf', 'Ranarr Weed')
+    kind, msg, item = T.experiment(p, 'Guam Leaf', 'Ranarr Weed')
+    assert kind == 'discovery' and 'Healing Draught' in msg and item.effect == 'heal_pct'
+    assert p.resources['Guam Leaf'] == 2 and p.resources['Ranarr Weed'] == 2
+    q = pickle.loads(pickle.dumps(p))
+    assert q.alchemy_journal['recipes']['Healing Draught'] == ('Guam Leaf', 'Ranarr Weed')
+    assert T.experiment(q, 'Ranarr Weed', 'Guam Leaf')[0] == 'known', 'rediscovering is not new'
+
+
+def test_unstable_mix_is_weaker_and_leaves_a_hint():
+    p = stock(alch(), 'Guam Leaf', 'Snapdragon')   # Vitality + (Snapdragon secondary: Restoration)
+    kind, msg, item = T.experiment(p, 'Guam Leaf', 'Snapdragon')
+    assert kind == 'unstable' and 'Healing Draught' in item.name and item.effect_value == 20
+    assert 'Healing Draught' in p.alchemy_journal['hints'] and 'Restoration' in msg
+
+
+def test_failed_mix_consumes_ingredients(monkeypatch):
+    monkeypatch.setattr(T, 'random', FixedRandom(0.9))  # no fumes
+    p = stock(alch(), 'Tarromin', 'Marrentill')
+    kind, _, item = T.experiment(p, 'Tarromin', 'Marrentill')
+    assert kind == 'fail' and item is None and p.resources['Tarromin'] == 2
+
+
+def test_brewing_a_known_recipe_is_one_tap():
+    p = stock(alch(), 'Guam Leaf', 'Ranarr Weed')
+    assert not T.brew_known(p, 'Healing Draught')[0], 'must be discovered first'
+    T.experiment(p, 'Guam Leaf', 'Ranarr Weed')
+    ok, _, item = T.brew_known(p, 'Healing Draught')
+    assert ok and item.effect_value == 40
+
+
+def test_potent_brews_at_herblore_15():
+    p = stock(alch(Herblore=15), 'Guam Leaf', 'Ranarr Weed')
+    T.experiment(p, 'Guam Leaf', 'Ranarr Weed')
+    _, _, item = T.brew_known(p, 'Healing Draught')
+    assert item.effect_value == 50
+
+
+def test_monster_reagent_recipes_and_panacea():
+    p = stock(alch(), 'Vampire Fang', 'Ranarr Weed', 'Marrentill', 'Snapdragon')
+    assert T.experiment(p, 'Vampire Fang', 'Ranarr Weed')[2].name == 'Crimson Draught'
+    _, _, panacea = T.experiment(p, 'Marrentill', 'Snapdragon')
+    p.debuffs['Poisoned'] = {'turns': 3, 'dmg': 5}
+    p.hp = 10
+    p.add_item(panacea)
+    p.use_consumable(panacea)
+    assert not p.debuffs and p.hp > 10
+
+
+def test_phoenix_draught_is_a_working_revive():
+    p = stock(alch(), 'Starbloom', 'Ranarr Weed')
+    _, _, item = T.experiment(p, 'Starbloom', 'Ranarr Weed')
+    assert item.effect == 'revive' and p.has_revive()
+
+
+def test_reagents_drop_only_from_their_monsters(monkeypatch):
+    monkeypatch.setattr(T, 'random', FixedRandom(0.0, 0.0, 0.0))
+    assert T.reagent_drop('Vampire') == 'Vampire Fang'
+    assert T.reagent_drop('Goblin') is None
+    assert T.reagent_drop('Void Stalker Leader') == 'Shadow Essence'
+
+
+def test_herb_patches_need_herbalism_10_and_careful_trades_risk(monkeypatch):
+    assert T.make_patch_node(alch(Herbalism=9), 2) is None
+    p = alch(Herbalism=10)
+    node = T.make_patch_node(p, 2)
+    assert {o['key'] for o in node['options']} == {'quick', 'careful', 'leave'}
+    monkeypatch.setattr(T, 'random', FixedRandom(0.1, 0.1))     # stung, rare herb found
+    events = T.resolve_node(node, 'careful', p)
+    assert events[0][0] == 'trap_pct' and p.resources.get(node['rare']) == 1
+    monkeypatch.setattr(T, 'random', FixedRandom())
+    q = alch(Herbalism=10)
+    T.resolve_node(node, 'quick', q)
+    assert sum(q.resources.values()) >= 3 and node['rare'] not in q.resources
+
+
+def test_starbloom_only_with_mythic_bloom(monkeypatch):
+    for lv, expected in ((19, None), (20, 1)):
+        p = alch(Herbalism=lv)
+        node = T.make_patch_node(p, 2)
+        monkeypatch.setattr(T, 'random', FixedRandom(0.9, 0.9, 0.01))  # no sting, no rare, bloom roll passes
+        T.resolve_node(node, 'careful', p)
+        assert p.resources.get('Starbloom') == expected
+
+
+def test_reagent_lore_unlocks_monster_remains():
+    ids = lambda p: {e['id'] for e in available_trade_events(p, 3)}
+    assert 'remains' not in ids(alch(Herblore=9)) and 'remains' in ids(alch(Herblore=10))
+    p = alch(Herblore=10)
+    resolve_trade_event('remains', p, 3, 0)
+    assert set(p.resources) <= set(T.MONSTER_REAGENTS) and sum(p.resources.values()) == 1
+
+
+def test_alchemy_bench_flow_through_the_web():
+    import app as game_app, os
+    from quests import QuestLog
+    client = game_app.app.test_client()
+    client.get('/')
+    with client.session_transaction() as s:
+        sid = s['sid']
+    p = stock(alch(Herbalism=5), 'Guam Leaf', 'Ranarr Weed')
+    st = game_app.fresh_state()
+    st.update(player=p, quest_log=QuestLog(), screen='craft', craft_skill='Herblore')
+    path = os.path.join(game_app.SAVE_DIR, f'{sid}.pkl')
+    pickle.dump(st, open(path, 'wb'))
+    page = client.post('/action', data={'action': 'alchemy'}, follow_redirects=True).get_data(as_text=True)
+    assert 'Alchemy Bench' in page and 'Vitality' in page
+    client.post('/action', data={'action': 'alc_pick_Guam Leaf'})
+    client.post('/action', data={'action': 'alc_pick_Ranarr Weed'})
+    page = client.post('/action', data={'action': 'alc_mix'}, follow_redirects=True).get_data(as_text=True)
+    assert 'NEW RECIPE: Healing Draught' in page and 'value="alc_brew_Healing Draught"' in page
+    assert 'Healing Draught' in pickle.load(open(path, 'rb'))['player'].alchemy_journal['recipes']
