@@ -493,8 +493,8 @@ def do_combat_turn(state, action, ability_idx=None, item_idx=None):
         clog('heal', 'Second Wind! You refuse to fall — 1 HP.')
     if player.hp <= 0:
         if player.has_revive():
-            clog('warning', 'Defeated... but a Phoenix Feather saves you!')
-            player.consume_revive()
+            name = player.consume_revive()
+            clog('warning', f'Defeated... but your {name} saves you!')
             return 'revived'
         return 'defeat'
 

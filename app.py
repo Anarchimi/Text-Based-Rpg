@@ -626,7 +626,7 @@ def action():
             state.pop('return_to', None)
             state['combat_enemy'] = None
             state['screen'] = 'hub'
-            add_msg(state, 'warning', 'You were revived by a Phoenix Feather!')
+            add_msg(state, 'warning', 'You were revived! Your revive item was used up.')
 
     elif screen == 'explore':
         player = state['player']

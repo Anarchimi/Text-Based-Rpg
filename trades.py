@@ -104,6 +104,8 @@ def available_trade_events(player, zone):
         gather_skill = BASIC_DISCOVERY_SKILL.get(ev["id"])
         if gather_skill and not _zone_res(zone, gather_skill):
             continue
+        if ev["id"] == "remains" and not zone_reagents(zone):
+            continue
         out.append(ev)
     return out
 
@@ -581,8 +583,20 @@ PROFESSION_EVENTS["Alchemist"].append(
      "title": "Monster remains", "detail": "Harvest alchemical reagents from a carcass"})
 
 
+def zone_reagents(zone):
+    """Reagents whose source monsters can spawn in this zone (spawn_enemy uses zone <= current),
+    so trail remains never hand out a reagent before its monster belongs in the progression."""
+    from enemies import ENEMY_TEMPLATES
+    names = [t["name"] for t in ENEMY_TEMPLATES if t["zone"] <= zone]
+    return [r for r, sources in MONSTER_REAGENTS.items()
+            if any(src in n for src in sources for n in names)]
+
+
 def _resolve_remains(player, zone):
-    reagent = random.choice(list(MONSTER_REAGENTS))
+    found = zone_reagents(zone)
+    if not found:   # only offered where reagents exist; this guards old pending paths
+        return [("nothing", 0, "The remains are too far gone to harvest anything useful.")]
+    reagent = random.choice(found)
     player.add_resource(reagent, 1)
     return [("resource", 0, f"You carefully harvest 1× {reagent} from the remains.")]
 
@@ -596,15 +610,17 @@ TEMPERAMENTS = {
     "elusive":    ("The line goes slack — then darts away.",        {"reel": 0.9, "tire": 0.5, "steady": 0.15}),
 }
 RESPONSES = {"reel": "🎣 Reel aggressively", "tire": "⏳ Let it tire", "steady": "🪢 Keep steady tension"}
-TROPHY_FISH = {1: "Large Trout", 2: "Trophy Salmon", 3: "Ancient Golden Trout", 4: "Voidfin", 5: "Voidfin"}
+TROPHY_FISH = {1: "Large Trout", 2: "Trophy Salmon", 3: "Ancient Golden Trout", 4: "Voidfin",
+               5: "Emberscale Leviathan"}
 LEGENDARY_FISH = "Ashvale River King"
+LEGENDARY_FISH_ZONE = 1   # the river by the Starter Village: Fishing 20 is a reason to go home
 TROPHY_CHANCE, LEGENDARY_CHANCE = 0.35, 0.10
 
 TRADE_MILESTONES.setdefault("Fishing", {}).update({
     5:  ("Hard Bites", "Strong fish can take the line while fishing: read the cue and choose how to fight it."),
     10: ("Read the Water", "See a hooked fish's temperament outright, and hook rarer fish from deeper waters."),
     15: ("Trophy Fish", "A well-played catch can land a trophy fish for your catch log and a feast."),
-    20: ("Legendary Catches", "The Ashvale River King can take your line."),
+    20: ("Legendary Catches", "The Ashvale River King can take your line — but only in the river by the Starter Village (zone 1)."),
 })
 TRADE_MILESTONES["Cooking"].update({
     10: ("Trophy Feasts", "Cook trophy fish into feasts: all stats up for many fights."),
@@ -628,7 +644,7 @@ def make_bite_node(player, zone):
     cue, _ = TEMPERAMENTS[trait]
     text = cue + (f" It's {trait}." if has_milestone(player, "Fishing", 10) else "")
     return {"type": "bite", "zone": zone, "fish": fish[0], "trait": trait,
-            "trophy": has_milestone(player, "Fishing", 15), "legendary": has_milestone(player, "Fishing", 20),
+            "trophy": has_milestone(player, "Fishing", 15), "legendary": has_milestone(player, "Fishing", 20) and zone == LEGENDARY_FISH_ZONE,
             "title": "Something big is on the line!", "text": text,
             "options": [{"key": k, "label": label, "detail": ""} for k, label in RESPONSES.items()]
                        + [{"key": "leave", "label": "✂ Cut the line", "detail": ""}]}
@@ -646,7 +662,7 @@ def _resolve_bite(node, key, player):
     caught = [f"{qty}× {fish}"]
     best = odds[key] == max(odds.values())
     events = []
-    if best and node.get("legendary") and random.random() < LEGENDARY_CHANCE:
+    if best and node.get("legendary") and zone == LEGENDARY_FISH_ZONE and random.random() < LEGENDARY_CHANCE:
         events += _land_trophy(player, LEGENDARY_FISH)
         caught.append(LEGENDARY_FISH)
     elif best and node.get("trophy") and random.random() < TROPHY_CHANCE:

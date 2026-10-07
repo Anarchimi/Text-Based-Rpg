@@ -86,8 +86,9 @@ def test_trade_paths_only_offered_to_professions():
 def test_every_discovery_resolves_to_real_rewards(trade):
     for ev in PROFESSION_EVENTS[trade]:
         p = trader(trade, **{ev['skill']: 20})
+        zone = next(z for z in range(2, 6) if ev in available_trade_events(p, z))   # where it's offered
         random.seed(1)
-        events = resolve_trade_event(ev['id'], p, 2, 0)
+        events = resolve_trade_event(ev['id'], p, zone, 0)
         gained_resources = sum(p.resources.values())
         items = [v for kind, v, _ in events if kind in ('item', 'node')]
         assert gained_resources > 0 or items or p.armed_trap, f'{ev["id"]} gave nothing'
@@ -579,7 +580,7 @@ def test_first_trophy_pays_a_one_time_reward():
 def test_river_king_only_at_fishing_20(monkeypatch):
     for lv, expected in ((19, None), (20, 1)):
         p = fisher(Fishing=lv)
-        node = bite(p, trait='heavy')   # build before fixing the rolls
+        node = bite(p, zone=T.LEGENDARY_FISH_ZONE, trait='heavy')   # build before fixing the rolls
         monkeypatch.setattr(T, 'random', FixedRandom(0.1, 0.05))
         T.resolve_node(node, 'steady', p)
         assert p.resources.get('Ashvale River King') == expected
@@ -898,3 +899,76 @@ def test_pre_trade_save_loads_and_all_trade_screens_render():
     go('inventory', 'Inventory')
     go('back', 'Explore')
     go('explore', 'Choose your path')
+
+
+# ── Cleanup: progression-safe rewards ──────────────────────────────────────────
+
+def test_monster_remains_respect_zone_progression():
+    """Remains may only yield reagents whose source monster can already spawn in that zone."""
+    from enemies import ENEMY_TEMPLATES
+    first_zone = {r: min(t['zone'] for t in ENEMY_TEMPLATES if any(src in t['name'] for src in srcs))
+                  for r, srcs in T.MONSTER_REAGENTS.items()}
+    for zone in range(1, 6):
+        assert set(T.zone_reagents(zone)) == {r for r, z in first_zone.items() if z <= zone}
+    assert T.zone_reagents(1) == [] and T.zone_reagents(2) == []
+
+    for zone in (1, 2):
+        p = alch(Herblore=20)
+        assert 'remains' not in {e['id'] for e in available_trade_events(p, zone)}, \
+            'no reagent-bearing monster lives here yet'
+        events = resolve_trade_event('remains', p, zone, 0)   # e.g. a path offered by an older build
+        assert events[0][0] == 'nothing' and not p.resources
+    for zone in (3, 4, 5):
+        p = alch(Herblore=10)
+        assert 'remains' in {e['id'] for e in available_trade_events(p, zone)}
+        for seed in range(30):
+            random.seed(seed)
+            resolve_trade_event('remains', p, zone, 0)
+        assert set(p.resources) <= set(T.zone_reagents(zone))
+
+
+def test_every_zone_has_its_own_trophy_fish_and_feast():
+    assert len(set(T.TROPHY_FISH.values())) == len(T.TROPHY_FISH) == 5
+    assert T.LEGENDARY_FISH not in T.TROPHY_FISH.values()
+    feasts = {name for r in CRAFTING_RECIPES['Cooking'] if r['output_type'] == 'meal' for name in r['inputs']}
+    assert set(T.TROPHY_FISH.values()) | {T.LEGENDARY_FISH} <= feasts
+
+
+def test_zone_5_lands_its_own_trophy(monkeypatch):
+    p = fisher(Fishing=19)
+    node = bite(p, zone=5, trait='heavy')
+    monkeypatch.setattr(T, 'random', FixedRandom(0.1, 0.1))   # catch, trophy
+    T.resolve_node(node, 'steady', p)
+    assert p.trophies == {T.TROPHY_FISH[5]: 1} and T.TROPHY_FISH[5] != T.TROPHY_FISH[4]
+
+
+@pytest.mark.parametrize('zone', [2, 3, 4, 5])
+def test_river_king_only_bites_in_its_home_river(monkeypatch, zone):
+    p = fisher(Fishing=20)
+    node = bite(p, zone=zone, trait='heavy')
+    assert not node['legendary']
+    node['legendary'] = True   # a node saved by an older build must not land it either
+    monkeypatch.setattr(T, 'random', FixedRandom(0.1, 0.01, 0.99))   # catch, legendary roll, no trophy
+    T.resolve_node(node, 'steady', p)
+    assert T.LEGENDARY_FISH not in p.resources and T.LEGENDARY_FISH not in p.trophies
+
+
+def test_revive_messages_name_the_actual_item(monkeypatch):
+    p = alch()
+    draught = Item('Phoenix Draught', 'consumable', 'Rare', 200, effect='revive', effect_value=1)
+    p.add_item(draught)
+    ok, msg = p.use_consumable(draught)
+    assert not ok and 'Phoenix Draught' in msg and 'Feather' not in msg and draught in p.inventory
+
+    e = spawn_enemy(1, 1)
+    e.atk = 10 ** 6
+    monkeypatch.setattr(combat, 'ENEMY_ABILITY_CHANCE', 0)
+    st = {'player': p, 'combat_enemy': e, 'combat_log': [], 'combat_turn': 1}
+    for seed in range(20):   # skip any lucky dodge
+        random.seed(seed)
+        p.hp = 1
+        if combat.do_combat_turn(st, 'defend') == 'revived':
+            break
+    text = ' '.join(l['text'] for l in st['combat_log'])
+    assert 'Phoenix Draught saves you' in text and 'Feather' not in text
+    assert draught not in p.inventory

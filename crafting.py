@@ -85,6 +85,7 @@ CRAFTING_RECIPES = {
         {"name":"Trophy Feast (Salmon)", "inputs":{"Trophy Salmon":1},       "output_type":"meal","output_name":"Trophy Feast","req":10,"xp":100},
         {"name":"Trophy Feast (Golden)", "inputs":{"Ancient Golden Trout":1},"output_type":"meal","output_name":"Trophy Feast","req":10,"xp":100},
         {"name":"Trophy Feast (Voidfin)","inputs":{"Voidfin":1},             "output_type":"meal","output_name":"Trophy Feast","req":10,"xp":100},
+        {"name":"Trophy Feast (Leviathan)","inputs":{"Emberscale Leviathan":1},"output_type":"meal","output_name":"Trophy Feast","req":10,"xp":100},
         {"name":"River King Feast",      "inputs":{"Ashvale River King":1},  "output_type":"meal","output_name":"River King Feast","req":10,"xp":200},
         {"name":"Dark Crab Meat",   "inputs":{"Raw Dark Crab":1}, "output_type":"consumable","effect":"heal_overheal","effect_value":80,"output_name":"Dark Crab Meat","req":19,"xp":100},
     ],

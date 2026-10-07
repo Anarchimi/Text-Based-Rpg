@@ -521,7 +521,7 @@ class Player:
             msg = eat_meal(self, item)
         elif eff == "revive":
             # Used to delete the feather while claiming to save it.
-            return False, "A Phoenix Feather works by itself: it revives you automatically if you fall."
+            return False, f"{item.name} works by itself: it revives you automatically if you fall."
         self.inventory.remove(item)
         return True, msg
 
@@ -529,12 +529,13 @@ class Player:
         return any(i.effect == "revive" for i in self.inventory)
 
     def consume_revive(self):
+        """Use up the first revive item; returns its name (None if there was none)."""
         for i in self.inventory:
             if i.effect == "revive":
                 self.inventory.remove(i)
                 self.hp = self.max_hp // 2
-                return True
-        return False
+                return i.name
+        return None
 
     # ── Buff Management ────────────────────────────────────────────────────────
     def tick_buffs(self):
